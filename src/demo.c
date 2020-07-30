@@ -2,173 +2,156 @@
 #include <stdio.h>
 #include <string.h>
 #include <libtouch.h>
-#include <linux/input-event-codes.h>
-#include "linalg.h"
-#include "render.h"
-#include "wayland.h"
+#include <ds/matrix.h>
+#include <mgu/gl.h>
+#include <mgu/sr.h>
+#include <mgu/text.h>
+#include <mgu/wayland.h>
 
 struct app {
 	struct mgu_disp disp;
 	struct mgu_win win;
-	GLuint program, attrib_pos, uni_color, uni_tran;
+	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran, uni_scale;
+
+	GLuint tex;
+	int tex_size[2];
+
+	struct sr *sr;
 
 	struct libtouch_surface *touch;
 	struct libtouch_area *touch_area;
-	float pointer_pos[2];
-	bool pointer_pressed;
-};
-
-static void
-wl_touch_down(void *data, struct wl_touch *wl_touch,
-		uint32_t serial, uint32_t time,
-		struct wl_surface *surface,
-		int32_t id, wl_fixed_t x, wl_fixed_t y)
-{
-	struct app *app = data;
-	libtouch_surface_down(app->touch, time, id,
-		(float[]){ wl_fixed_to_double(x), wl_fixed_to_double(y) });
-}
-
-static void
-wl_touch_up(void *data, struct wl_touch *wl_touch,
-	   uint32_t serial, uint32_t time, int32_t id)
-{
-	struct app *app = data;
-	libtouch_surface_up(app->touch, time, id);
-}
-
-static void
-wl_touch_motion(void *data, struct wl_touch *wl_touch,
-		uint32_t time, int32_t id, wl_fixed_t x, wl_fixed_t y)
-{
-	struct app *app = data;
-	libtouch_surface_motion(app->touch, time, id,
-		(float[]){ wl_fixed_to_double(x), wl_fixed_to_double(y) });
-}
-
-static void
-wl_touch_frame(void *data, struct wl_touch *wl_touch)
-{
-}
-
-static void
-wl_touch_cancel(void *data, struct wl_touch *wl_touch)
-{
-}
-
-static void
-wl_touch_shape(void *data, struct wl_touch *wl_touch,
-		int32_t id, wl_fixed_t major, wl_fixed_t minor)
-{
-}
-
-static void
-wl_touch_orientation(void *data, struct wl_touch *wl_touch,
-		int32_t id, wl_fixed_t orientation)
-{
-}
-
-static const struct wl_touch_listener touch_lis = {
-	.down = wl_touch_down,
-	.up = wl_touch_up,
-	.motion = wl_touch_motion,
-	.frame = wl_touch_frame,
-	.cancel = wl_touch_cancel,
-	.shape = wl_touch_shape,
-	.orientation = wl_touch_orientation,
-};
-
-static void pointer_enter(void *data, struct wl_pointer *pointer,
-		uint32_t serial, struct wl_surface *surface,
-		wl_fixed_t fx, wl_fixed_t fy) {
-	struct app *app = data;
-	app->pointer_pos[0] = wl_fixed_to_double(fx);
-	app->pointer_pos[1] = wl_fixed_to_double(fy);
-}
-static void pointer_leave(void *data, struct wl_pointer *pointer,
-		uint32_t serial, struct wl_surface *surface) {
-}
-static void pointer_motion(void *data, struct wl_pointer *pointer,
-		uint32_t time, wl_fixed_t fx, wl_fixed_t fy) {
-	struct app *app = data;
-	app->pointer_pos[0] = wl_fixed_to_double(fx);
-	app->pointer_pos[1] = wl_fixed_to_double(fy);
-	if (app->pointer_pressed) {
-		libtouch_surface_motion(app->touch, time, 1, app->pointer_pos);
-		struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
-		fprintf(stderr, "libtouch_rt: t[%f %f] s[%f] r[%f]\n",
-			rt.t1, rt.t2, rt.s, rt.r);
-	}
-}
-static void pointer_button(void *data, struct wl_pointer *pointer,
-		uint32_t serial, uint32_t time,
-		uint32_t button, uint32_t state) {
-	struct app *app = data;
-	if (button & BTN_LEFT) {
-		if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
-			if (!app->pointer_pressed) {
-				libtouch_surface_down(app->touch,
-					time, 1, app->pointer_pos);
-			}
-			app->pointer_pressed = true;
-		} else {
-			if (app->pointer_pressed) {
-				libtouch_surface_up(app->touch, time, 1);
-			}
-			app->pointer_pressed = false;
-		}
-	}
-}
-static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis, wl_fixed_t value) { }
-static void pointer_frame(void *data, struct wl_pointer *pointer) { }
-static void pointer_axis_source(void *data, struct wl_pointer *pointer, uint32_t source) { }
-static void pointer_axis_stop(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis) { }
-static void pointer_axis_discrete(void *data, struct wl_pointer *pointer, uint32_t axis, int32_t discrete) { }
-
-
-const struct wl_pointer_listener pointer_lis = {
-	pointer_enter,
-	pointer_leave,
-	pointer_motion,
-	pointer_button,
-	pointer_axis,
-	pointer_frame,
-	pointer_axis_source,
-	pointer_axis_stop,
-	pointer_axis_discrete
 };
 
 void render(void *cl, float t)
 {
 	struct app *app = cl;
 
+	int32_t scale = app->disp.out.scale;
+	glViewport(0, 0, app->win.size[0] * scale, app->win.size[1] * scale);
+
+	/* set blending */
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+	glClearColor(1.0, 1.0, 0.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	float proj[9];
+	mat3_ident(proj);
+	mat3_proj(proj, app->win.size);
+
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_RECT,
+		.p = { 0, 0, 100, 100 },
+		.argb = 0xFF00FF00
+	});
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_RECT,
+		.p = { 50, 50, 100, 100 },
+		.argb = 0xFF0000FF
+	});
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_TEXT,
+		.p = { 200, 200, 0, 0 },
+		.argb = 0xFF000000,
+		.text = { .s = "hello world" }
+	});
+
+	sr_present(app->sr, proj);
+
 	glUseProgram(app->program);
-	glViewport(0, 0, app->win.size[0], app->win.size[1]);
 
 	float T[9];
 	mat3_ident(T);
 
-	mat3_scale(T, (float[]){ 100, 100 });
+	double ppmm = app->disp.out.ppmm, ss = ppmm / scale;
+
+	mat3_scale(T, (float[]){
+		app->tex_size[0] / (float)scale,
+		app->tex_size[1] / (float)scale
+	});
 
 	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
-	mat3_tran(T, rt.t);
+	float rt_scale = libtouch_rt_scaling(&rt);
+	// fprintf(stderr, "libtouch_rt: t[%f %f] s[%f] r[%f] scale: %f\n",
+	// 	rt.t1, rt.t2, rt.s, rt.r, rt_scale);
+	float touch_T[] = {
+		rt.s, -rt.r, rt.t1,
+		rt.r, rt.s, rt.t2,
+		0, 0, 1
+	};
 
+	// mat3_scale(T, (float[]){ ss, ss });
+	mat3_mul_l(T, touch_T);
 	mat3_proj(T, app->win.size);
 	mat3_t(T);
 	glUniformMatrix3fv(app->uni_tran, 1, GL_FALSE, T);
 
 	static const GLfloat a_pos[] = { 0, 0, 0, 1, 1, 0, 1, 1 };
 	glVertexAttribPointer(app->attrib_pos, 2, GL_FLOAT, GL_FALSE, 0, a_pos);
+	glVertexAttribPointer(app->attrib_tex, 2, GL_FLOAT, GL_FALSE, 0, a_pos);
 	glEnableVertexAttribArray(app->attrib_pos);
+	glEnableVertexAttribArray(app->attrib_tex);
 
-	glUniform4f(app->uni_color, 1, 0, 0, 1);
-
-	glClearColor(1.0, 1.0, 0.0, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
+	/* bind texture */
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, app->tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glUniform1i(app->uni_tex, 0);
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	glFlush();
+}
+
+const GLchar shader_frag_mandlebrot[] =
+"precision highp float;\n"
+"varying vec2 v_tex;\n"
+"const int iter = 4;\n"
+"void main() {\n"
+"	vec2 z, c;\n"
+"	z = c = (v_tex - 0.5) * 4.0;\n"
+"	int k = 0;\n"
+"	for (int i = 0; i < iter; ++i) {\n"
+"		vec2 zn = vec2(z.x * z.x - z.y * z.y, z.x * z.y + z.y * z.x) + c;\n"
+"		if (dot(zn, zn) > 4.0) break;\n"
+"		z = zn;\n"
+"		++k;\n"
+"	}\n"
+"	gl_FragColor = vec4(k == iter ? 0.0 : float(k) / float(iter), 0, 0, 1);\n"
+"}\n";
+
+const GLchar shader_frag_msdf[] =
+"precision highp float;\n"
+"varying vec2 v_tex;\n"
+"uniform sampler2D tex;\n"
+"uniform float scale;\n"
+"float median(float a, float b, float c) {\n"
+"	return max(min(a, b), min(max(a, b), c));\n"
+"}\n"
+"void main() {\n"
+"	vec3 s = texture2D(tex, v_tex).rgb;\n"
+"	float d = (median(s.r, s.g, s.b) - 0.5) * 2.0;\n"
+"	float w = clamp(d * scale, -0.5, 0.5);\n"
+"	float f = d > -0.999 ? w + 0.5 : 0.0;\n"
+"	gl_FragColor = mix(vec4(1, 1, 1, 1), vec4(0, 0, 0, 1), f);\n"
+"}\n";
+
+void seat_cb(void *cl, struct mgu_input_event_args ev) {
+	struct app *app = cl;
+	if (ev.t & MGU_TOUCH) {
+		const double *p = ev.touch.down_or_move.p;
+		if (ev.t & MGU_DOWN) {
+			libtouch_surface_down(app->touch, ev.time, ev.touch.id,
+				(float[]){ p[0], p[1] });
+		} else if (ev.t & MGU_MOVE) {
+			libtouch_surface_motion(app->touch, ev.time, ev.touch.id,
+				(float[]){ p[0], p[1] });
+		} else if (ev.t & MGU_UP) {
+			libtouch_surface_up(app->touch, ev.time, ev.touch.id);
+		}
+	}
 }
 
 int main()
@@ -182,39 +165,42 @@ int main()
 		goto cleanup_none;
 	}
 
-	if (mgu_win_init(&app.win, &app.disp, &app, &render) != 0) {
+	if (mgu_win_init_xdg(&app.win, &app.disp) != 0) {
 		res = 1;
 		goto cleanup_disp;
 	}
 
-	if (app.disp.seat.touch) {
-		fprintf(stderr, "adding touch listener\n");
-		wl_touch_add_listener(app.disp.seat.touch, &touch_lis, &app);
-	}
-	else if (app.disp.seat.pointer) {
-		fprintf(stderr, "adding pointer listener\n");
-		wl_pointer_add_listener(app.disp.seat.pointer,
-			&pointer_lis, &app);
-	}
-	
+	app.disp.seat.cb = (struct mgu_seat_cb){ .f = seat_cb, .cl = &app };
+	app.win.render_cb = (struct mgu_render_cb){ .f = render, .cl = &app };
+
 	app.touch = libtouch_surface_create();
-	app.touch_area = libtouch_surface_add_area(app.touch,
-		(struct aabb) { .x = 0, .y = 0, .w = 10000, .h = 10000 });
+	float area[] = { 0, 0, 10000, 10000 };
+	app.touch_area = libtouch_surface_add_area(app.touch, area,
+		LIBTOUCH_TSR, (struct libtouch_area_ops){ 0 });
 
 	app.program = mgu_shader_program(mgu_shader_vert_simple,
-		mgu_shader_frag_color);
+		mgu_shader_frag_tex);
 	if (!app.program) {
 		res = 1;
 		goto cleanup_win;
 	}
 	app.attrib_pos = glGetAttribLocation(app.program, "pos");
-	app.uni_color = glGetUniformLocation(app.program, "color");
-	app.uni_tran = glGetUniformLocation(app.program, "tran");
+	app.attrib_tex = glGetAttribLocation(app.program, "tex");
+	app.uni_tran = glGetUniformLocation(app.program, "mat");
+	app.uni_tex = glGetUniformLocation(app.program, "tex");
+	app.uni_scale = glGetUniformLocation(app.program, "scale");
+
+	struct mgu_text mgu_text;
+	mgu_text_init(&mgu_text);
+	app.tex = mgu_tex_text(&mgu_text, "asdfg", app.tex_size);
+
+	app.sr = sr_create_opengl();
 
 	mgu_win_run(&app.win);
 
 	res = 0;
 
+	sr_destroy(app.sr);
 cleanup_win:
 	mgu_win_finish(&app.win);
 cleanup_disp:

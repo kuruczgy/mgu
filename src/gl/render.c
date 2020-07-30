@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "render.h"
+#include <mgu/gl.h>
 
 static GLuint compile(GLuint type, const GLchar *src)
 {
@@ -13,6 +13,7 @@ static GLuint compile(GLuint type, const GLchar *src)
 		glGetShaderiv(s, GL_INFO_LOG_LENGTH, &get);
 		GLchar *log = malloc(get + 1);
 		glGetShaderInfoLog(s, get + 1, NULL, log);
+		fprintf(stderr, "src: %s", src);
 		fprintf(stderr, "shader compile failed:\n%s\n", log);
 		glDeleteShader(s);
 		return 0;

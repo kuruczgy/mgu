@@ -1,10 +1,107 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <linux/input-event-codes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wayland-egl.h>
-#include "wayland.h"
+#include <mgu/wayland.h>
+
+static void wl_point(wl_fixed_t x, wl_fixed_t y, double p[static 2]) {
+	p[0] = wl_fixed_to_double(x);
+	p[1] = wl_fixed_to_double(y);
+}
+static void input_event(struct mgu_seat *seat, struct mgu_input_event_args ev,
+		uint32_t time) {
+	ev.time = time;
+	if (seat->cb.f) {
+		seat->cb.f(seat->cb.cl, ev);
+	}
+}
+static void wl_touch_down(void *data, struct wl_touch *wl_touch,
+		uint32_t serial, uint32_t time,
+		struct wl_surface *surface,
+		int32_t id, wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_DOWN };
+	wl_point(x, y, ev.touch.down_or_move.p);
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_up(void *data, struct wl_touch *wl_touch,
+	   uint32_t serial, uint32_t time, int32_t id)
+{
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_UP };
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_motion(void *data, struct wl_touch *wl_touch,
+		uint32_t time, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_MOVE };
+	wl_point(x, y, ev.touch.down_or_move.p);
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_frame(void *data, struct wl_touch *wl_touch) { }
+static void wl_touch_cancel(void *data, struct wl_touch *wl_touch) { }
+static void wl_touch_shape(void *data, struct wl_touch *wl_touch,
+		int32_t id, wl_fixed_t major, wl_fixed_t minor) { }
+static void wl_touch_orientation(void *data, struct wl_touch *wl_touch,
+		int32_t id, wl_fixed_t orientation) { }
+static const struct wl_touch_listener touch_lis = {
+	.down = wl_touch_down,
+	.up = wl_touch_up,
+	.motion = wl_touch_motion,
+	.frame = wl_touch_frame,
+	.cancel = wl_touch_cancel,
+	.shape = wl_touch_shape,
+	.orientation = wl_touch_orientation,
+};
+
+static void pointer_enter(void *data, struct wl_pointer *pointer,
+		uint32_t serial, struct wl_surface *surface,
+		wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_seat *seat = data;
+	wl_point(x, y, seat->pointer_p);
+}
+static void pointer_leave(void *data, struct wl_pointer *pointer,
+		uint32_t serial, struct wl_surface *surface) { }
+static void pointer_motion(void *data, struct wl_pointer *pointer,
+		uint32_t time, wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_seat *seat = data;
+	wl_point(x, y, seat->pointer_p);
+
+	struct mgu_input_event_args ev = { .t = MGU_POINTER | MGU_MOVE };
+	memcpy(ev.pointer.move.p, seat->pointer_p, sizeof(double) * 2);
+	input_event(data, ev, time);
+}
+static void pointer_button(void *data, struct wl_pointer *pointer,
+		uint32_t serial, uint32_t time,
+		uint32_t button, uint32_t state) {
+	struct mgu_seat *seat = data;
+	struct mgu_input_event_args ev = {
+		.t = MGU_POINTER | MGU_BTN | MGU_DOWN };
+	memcpy(ev.pointer.btn.p, seat->pointer_p, sizeof(double) * 2);
+	if (button & BTN_LEFT && state == 1) {
+		input_event(data, ev, time);
+	}
+}
+static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis, wl_fixed_t value) { }
+static void pointer_frame(void *data, struct wl_pointer *pointer) { }
+static void pointer_axis_source(void *data, struct wl_pointer *pointer, uint32_t source) { }
+static void pointer_axis_stop(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis) { }
+static void pointer_axis_discrete(void *data, struct wl_pointer *pointer, uint32_t axis, int32_t discrete) { }
+const struct wl_pointer_listener pointer_lis = {
+	pointer_enter,
+	pointer_leave,
+	pointer_motion,
+	pointer_button,
+	pointer_axis,
+	pointer_frame,
+	pointer_axis_source,
+	pointer_axis_stop,
+	pointer_axis_discrete
+};
 
 static void
 capabilities(void *data, struct wl_seat *wl_seat, uint32_t caps)
@@ -13,6 +110,7 @@ capabilities(void *data, struct wl_seat *wl_seat, uint32_t caps)
 	if (caps & WL_SEAT_CAPABILITY_TOUCH) {
 		if (!seat->touch) {
 			seat->touch = wl_seat_get_touch(wl_seat);
+			wl_touch_add_listener(seat->touch, &touch_lis, seat);
 		}
 	} else if (seat->touch) {
 		wl_touch_release(seat->touch), seat->touch = NULL;
@@ -21,6 +119,8 @@ capabilities(void *data, struct wl_seat *wl_seat, uint32_t caps)
 	if (caps & WL_SEAT_CAPABILITY_POINTER) {
 		if (!seat->pointer) {
 			seat->pointer = wl_seat_get_pointer(wl_seat);
+			wl_pointer_add_listener(seat->pointer,
+				&pointer_lis, seat);
 		}
 	} else if (seat->pointer) {
 		wl_pointer_release(seat->pointer), seat->pointer = NULL;
@@ -40,6 +140,54 @@ handle_xdg_wm_base_ping(void *data, struct xdg_wm_base *shell, uint32_t serial)
     xdg_wm_base_pong(shell, serial);
 }
 static const struct xdg_wm_base_listener wm_lis = { handle_xdg_wm_base_ping };
+
+static void output_handle_geometry(void *data, struct wl_output *wl_output,
+		int32_t x, int32_t y, int32_t phys_width, int32_t phys_height,
+		int32_t subpixel, const char *make, const char *model,
+		int32_t transform) {
+	struct mgu_disp *disp = data;
+	struct mgu_out *out = &disp->out;
+	if (wl_output == out->out) {
+		out->size_mm[0] = phys_width, out->size_mm[1] = phys_height;
+	}
+}
+static void output_handle_mode(void *data, struct wl_output *wl_output,
+		uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
+	struct mgu_disp *disp = data;
+	struct mgu_out *out = &disp->out;
+	if (wl_output == out->out) {
+		out->res_px[0] = width;
+		out->res_px[1] = height;
+	}
+}
+static void output_handle_done(void* data, struct wl_output *wl_output) {
+	struct mgu_disp *disp = data;
+	struct mgu_out *out = &disp->out;
+	if (wl_output == out->out) {
+		double p = hypot(out->res_px[0], out->res_px[1]);
+		double mm = hypot(out->size_mm[0], out->size_mm[1]);
+		out->ppmm = p / mm;
+		out->ppmm /= out->scale;
+		fprintf(stderr, "ppmm: %f\n", out->ppmm);
+
+		out->configured = true;
+	}
+}
+static void output_handle_scale(void* data, struct wl_output *wl_output,
+	int32_t factor) {
+	struct mgu_disp *disp = data;
+	struct mgu_out *out = &disp->out;
+	if (wl_output == out->out) {
+		fprintf(stderr, "scale: %d\n", factor);
+		out->scale = factor;
+	}
+}
+static const struct wl_output_listener output_lis = {
+	.geometry = output_handle_geometry,
+	.mode = output_handle_mode,
+	.done = output_handle_done,
+	.scale = output_handle_scale,
+};
 
 static void
 global(void *data, struct wl_registry *reg,
@@ -61,6 +209,16 @@ global(void *data, struct wl_registry *reg,
 			version); // TODO: compositor support?
 		if (disp->wm) {
 			xdg_wm_base_add_listener(disp->wm, &wm_lis, disp);
+		}
+	} else if (strcmp(i, zwlr_layer_shell_v1_interface.name) == 0) {
+		disp->layer_shell = wl_registry_bind(reg, id,
+			&zwlr_layer_shell_v1_interface,
+			zwlr_layer_shell_v1_interface.version);
+	} else if (!disp->out.out && strcmp(i, wl_output_interface.name) == 0) {
+		disp->out.out = wl_registry_bind(reg, id, &wl_output_interface,
+			wl_output_interface.version);
+		if (disp->out.out) {
+			wl_output_add_listener(disp->out.out,&output_lis,disp);
 		}
 	}
 }
@@ -139,6 +297,9 @@ int mgu_disp_init(struct mgu_disp *disp)
 {
 	int res;
 
+	disp->out.ppmm = -1.0;
+	disp->out.scale = 1;
+
 	disp->disp = wl_display_connect(NULL);
 	if (!disp->disp) {
 		res = -1; /* wl_display_connect failed */
@@ -161,12 +322,18 @@ int mgu_disp_init(struct mgu_disp *disp)
 		goto cleanup_disp;
 	}
 
+	// TODO: please...
+	res = wl_display_roundtrip(disp->disp);
 	res = wl_display_roundtrip(disp->disp);
 	if (res == -1) {
 		goto cleanup_disp;
 	}
 
-	if (!(disp->comp && disp->seat.seat && disp->wm)) {
+	if (!(disp->comp
+			&& disp->seat.seat
+			&& disp->wm
+			&& disp->layer_shell
+			&& disp->out.configured)) {
 		res = -1;
 		goto cleanup_disp;
 	}

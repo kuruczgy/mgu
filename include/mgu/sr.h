@@ -1,0 +1,57 @@
+#ifndef MGU_SR_H
+#define MGU_SR_H
+
+struct sr;
+
+enum sr_type {
+	SR_RECT,
+	SR_TEXT,
+	SR_TYPE_N
+};
+
+enum sr_text_opts {
+	SR_CENTER_V = 1 << 0,
+	SR_CENTER_H = 1 << 1,
+	SR_CENTER = SR_CENTER_V | SR_CENTER_H,
+};
+
+struct sr_spec {
+	enum sr_type t;
+	float p[4];
+	uint32_t argb;
+	union {
+		struct {
+			const char *s;
+			// float w;
+			// enum sr_text_opts o;
+		} text;
+	};
+};
+
+struct sr *sr_create_opengl();
+void sr_destroy(struct sr *sr);
+void sr_put(struct sr *sr, struct sr_spec spec);
+void sr_present(struct sr *sr, const float mat[static 9]);
+
+/*
+Example usage:
+
+sr_put(sr, (struct sr_spec){
+	.t = SR_RECT,
+	.p = { 0, 0, 100, 100 },
+	.argb = 0xFF000000,
+});
+
+sr_put(sr, (struct sr_spec){
+	.t = SR_TEXT,
+	.p = { 0, 0, 100, 100 },
+	.argb = 0xFF000000,
+	.text = {
+		.s = "asdfg",
+		.w = 16,
+		.o = SR_CENTER
+	},
+});
+*/
+
+#endif
