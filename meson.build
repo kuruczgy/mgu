@@ -1,13 +1,55 @@
-project('mgu', 'c', default_options : [ 'c_std=c11' ])
+project('mgu', 'c', default_options : [ 'c_std=c11', 'default_library=static' ])
+
+em = host_machine.system() == 'emscripten'
+
+protocols_code = []
+protocols_client_header = []
+
+if em
+  wayland_client = []
+  wayland_egl = []
+  egl = []
+  glesv2 = []
+  pangocairo = []
+else
+  wayland_client = dependency('wayland-client')
+  wayland_egl = dependency('wayland-egl')
+  egl = dependency('egl')
+  glesv2 = dependency('glesv2')
+  pangocairo = dependency('pangocairo')
+
+  # Wayland scanner stuff. Taken from wlroots (protocols/meson.build)
+  dep_scanner = dependency('wayland-scanner')
+  wayland_scanner = find_program(dep_scanner
+    .get_pkgconfig_variable('wayland_scanner'))
+  dep_wp = dependency('wayland-protocols', version: '>= 1.18')
+  wl_protocol_dir = dep_wp.get_pkgconfig_variable('pkgdatadir')
+  protocols = {
+    'xdg-shell' : wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml',
+    'wlr-layer-shell-unstable-v1': 'protocol/wlr-layer-shell-unstable-v1.xml',
+  }
+  foreach name, path : protocols
+    code = custom_target(
+      name.underscorify() + '_c',
+      input: path,
+      output: '@BASENAME@-protocol.c',
+      command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+    )
+
+    client_header = custom_target(
+      name.underscorify() + '_client_h',
+      input: path,
+      output: '@BASENAME@-client-protocol.h',
+      command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+    )
+
+    protocols_code += [ code ]
+    protocols_client_header += [ client_header ]
+  endforeach
+endif
 
 cc = meson.get_compiler('c')
 m = cc.find_library('m', required : false)
-
-wayland_client = dependency('wayland-client')
-wayland_egl = dependency('wayland-egl')
-egl = dependency('egl')
-glesv2 = dependency('glesv2')
-pangocairo = dependency('pangocairo')
 
 libtouch_proj = subproject('libtouch')
 libtouch = libtouch_proj.get_variable('libtouch_dep')
@@ -17,37 +59,6 @@ ds_matrix_dep = ds_proj.get_variable('ds_matrix_dep')
 ds_vec_dep = ds_proj.get_variable('ds_vec_dep')
 
 incdir = include_directories('include')
-
-# Wayland scanner stuff. Taken from wlroots (protocols/meson.build)
-dep_scanner = dependency('wayland-scanner')
-wayland_scanner = find_program(dep_scanner
-  .get_pkgconfig_variable('wayland_scanner'))
-dep_wp = dependency('wayland-protocols', version: '>= 1.18')
-wl_protocol_dir = dep_wp.get_pkgconfig_variable('pkgdatadir')
-protocols = {
-  'xdg-shell' : wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml',
-  'wlr-layer-shell-unstable-v1': 'protocol/wlr-layer-shell-unstable-v1.xml',
-}
-protocols_code = []
-protocols_client_header = []
-foreach name, path : protocols
-  code = custom_target(
-    name.underscorify() + '_c',
-    input: path,
-    output: '@BASENAME@-protocol.c',
-    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
-  )
-
-  client_header = custom_target(
-    name.underscorify() + '_client_h',
-    input: path,
-    output: '@BASENAME@-client-protocol.h',
-    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
-  )
-
-  protocols_code += [ code ]
-  protocols_client_header += [ client_header ]
-endforeach
 
 mgu_gl = library(
   'mgu-gl',
@@ -59,18 +70,27 @@ mgu_gl = library(
 )
 mgu_gl_dep = declare_dependency(link_with : mgu_gl, include_directories : incdir)
 
-mgu_wayland = library(
-  'mgu-wayland',
-  'src/wayland/window.c',
-  'src/wayland/display.c',
-  protocols_code,
-  protocols_client_header,
-  dependencies : [ m, egl, wayland_client, wayland_egl ],
-  include_directories : incdir
-)
-mgu_wayland_dep = declare_dependency(
+if em
+  mgu_win = library(
+    'mgu-win',
+    'src/win_em.c',
+    dependencies : [ m, egl ],
+    include_directories : incdir
+  )
+else
+  mgu_win = library(
+    'mgu-win',
+    'src/wayland/window.c',
+    'src/wayland/display.c',
+    protocols_code,
+    protocols_client_header,
+    dependencies : [ m, egl, wayland_client, wayland_egl ],
+    include_directories : incdir
+  )
+endif
+mgu_win_dep = declare_dependency(
   sources : [ protocols_client_header ],
-  link_with : mgu_wayland,
+  link_with : mgu_win,
   include_directories : incdir
 )
 
@@ -125,8 +145,16 @@ executable(
     mgu_sr_gl_dep,
     mgu_gl_dep,
     mgu_text_dep,
-    mgu_wayland_dep,
+    mgu_win_dep,
     glesv2,
     ds_matrix_dep
   ]
 )
+
+if em
+  conf_data = configuration_data()
+  conf_data.set('exe_name', 'demo')
+  configure_file(input : 'index.html.in',
+		 output : 'index.html',
+		 configuration : conf_data)
+endif

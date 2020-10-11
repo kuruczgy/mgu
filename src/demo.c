@@ -6,7 +6,7 @@
 #include <mgu/gl.h>
 #include <mgu/sr.h>
 #include <mgu/text.h>
-#include <mgu/wayland.h>
+#include <mgu/win.h>
 
 struct app {
 	struct mgu_disp disp;
@@ -40,9 +40,12 @@ void render(void *cl, float t)
 	mat3_ident(proj);
 	mat3_proj(proj, app->win.size);
 
+	t /= 4.0f;
+	int off = (t - (int)t) * 100;
+
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
-		.p = { 0, 0, 100, 100 },
+		.p = { off, 0, 100, 100 },
 		.argb = 0xFF00FF00
 	});
 	sr_put(app->sr, (struct sr_spec){
@@ -50,11 +53,14 @@ void render(void *cl, float t)
 		.p = { 50, 50, 100, 100 },
 		.argb = 0xFF0000FF
 	});
+
+	char str_buf[16];
+	snprintf(str_buf, 16, "off: %d", off);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
-		.p = { 200, 200, 0, 0 },
+		.p = { off, 200, 0, 0 },
 		.argb = 0xFF000000,
-		.text = { .s = "hello world" }
+		.text = { .s = str_buf }
 	});
 
 	sr_present(app->sr, proj);
@@ -64,7 +70,7 @@ void render(void *cl, float t)
 	float T[9];
 	mat3_ident(T);
 
-	double ppmm = app->disp.out.ppmm, ss = ppmm / scale;
+	// double ppmm = app->disp.out.ppmm, ss = ppmm / scale;
 
 	mat3_scale(T, (float[]){
 		app->tex_size[0] / (float)scale,
@@ -72,7 +78,7 @@ void render(void *cl, float t)
 	});
 
 	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
-	float rt_scale = libtouch_rt_scaling(&rt);
+	// float rt_scale = libtouch_rt_scaling(&rt);
 	// fprintf(stderr, "libtouch_rt: t[%f %f] s[%f] r[%f] scale: %f\n",
 	// 	rt.t1, rt.t2, rt.s, rt.r, rt_scale);
 	float touch_T[] = {
@@ -85,11 +91,17 @@ void render(void *cl, float t)
 	mat3_mul_l(T, touch_T);
 	mat3_proj(T, app->win.size);
 	mat3_t(T);
+
 	glUniformMatrix3fv(app->uni_tran, 1, GL_FALSE, T);
 
 	static const GLfloat a_pos[] = { 0, 0, 0, 1, 1, 0, 1, 1 };
-	glVertexAttribPointer(app->attrib_pos, 2, GL_FLOAT, GL_FALSE, 0, a_pos);
-	glVertexAttribPointer(app->attrib_tex, 2, GL_FLOAT, GL_FALSE, 0, a_pos);
+	GLuint buf;
+	glGenBuffers(1, &buf);
+	glBindBuffer(GL_ARRAY_BUFFER, buf);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 4, a_pos, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(app->attrib_pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glVertexAttribPointer(app->attrib_tex, 2, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(app->attrib_pos);
 	glEnableVertexAttribArray(app->attrib_tex);
 
@@ -102,7 +114,7 @@ void render(void *cl, float t)
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-	glFlush();
+	glDeleteBuffers(1, &buf);
 }
 
 const GLchar shader_frag_mandlebrot[] =
@@ -165,7 +177,7 @@ int main()
 		goto cleanup_none;
 	}
 
-	if (mgu_win_init_xdg(&app.win, &app.disp) != 0) {
+	if (mgu_win_init(&app.win, &app.disp) != 0) {
 		res = 1;
 		goto cleanup_disp;
 	}
@@ -187,7 +199,7 @@ int main()
 	app.attrib_pos = glGetAttribLocation(app.program, "pos");
 	app.attrib_tex = glGetAttribLocation(app.program, "tex");
 	app.uni_tran = glGetUniformLocation(app.program, "mat");
-	app.uni_tex = glGetUniformLocation(app.program, "tex");
+	app.uni_tex = glGetUniformLocation(app.program, "texture");
 	app.uni_scale = glGetUniformLocation(app.program, "scale");
 
 	struct mgu_text mgu_text;

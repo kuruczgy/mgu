@@ -1,6 +1,6 @@
 #include <poll.h>
 #include <stdio.h>
-#include <mgu/wayland.h>
+#include <mgu/win.h>
 
 static void schedule_frame(struct mgu_win *win);
 
@@ -255,6 +255,9 @@ cleanup_none:
 	return res;
 }
 
+int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp) {
+	return mgu_win_init_xdg(win, disp);
+}
 int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp) {
 	win->type = MGU_WIN_XDG;
 	return init_common(win, disp);

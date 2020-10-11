@@ -33,7 +33,7 @@ const GLchar mgu_shader_vert_simple[] =
 const GLchar mgu_shader_frag_tex[] =
 "precision mediump float;\n"
 "varying vec2 v_tex;\n"
-"uniform sampler2D tex;\n"
+"uniform sampler2D texture;\n"
 "void main() {\n"
-"	gl_FragColor = texture2D(tex, v_tex);\n"
+"	gl_FragColor = texture2D(texture, v_tex);\n"
 "}\n";

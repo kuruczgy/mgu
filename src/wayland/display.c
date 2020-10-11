@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wayland-egl.h>
-#include <mgu/wayland.h>
+#include <mgu/win.h>
 
 static void wl_point(wl_fixed_t x, wl_fixed_t y, double p[static 2]) {
 	p[0] = wl_fixed_to_double(x);

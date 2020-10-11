@@ -3,7 +3,7 @@
 #include <GLES2/gl2.h>
 
 struct mgu_pixel { GLubyte r, g, b, a; };
-_Static_assert(sizeof(struct mgu_pixel) == 4);
+_Static_assert(sizeof(struct mgu_pixel) == 4, "");
 
 GLuint mgu_tex_farbfeld(const char *filename);
 GLuint mgu_tex_mem(struct mgu_pixel *data, uint32_t size[static 2]);

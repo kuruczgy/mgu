@@ -1,5 +1,6 @@
 #ifndef MGU_INPUT_H
 #define MGU_INPUT_H
+#include <stdint.h>
 
 enum mgu_input_ev {
 	MGU_DOWN = 1 << 0,
