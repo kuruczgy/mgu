@@ -46,7 +46,7 @@ void render(void *cl, float t)
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
 		.p = { off, 0, 100, 100 },
-		.argb = 0xFF00FF00
+		.argb = 0x4400FF00
 	});
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
@@ -162,6 +162,11 @@ void seat_cb(void *cl, struct mgu_input_event_args ev) {
 				(float[]){ p[0], p[1] });
 		} else if (ev.t & MGU_UP) {
 			libtouch_surface_up(app->touch, ev.time, ev.touch.id);
+		}
+	}
+	if (ev.t & MGU_KEYBOARD) {
+		if (ev.t & MGU_DOWN) {
+			printf("key down: %u\n", ev.keyboard.down.key);
 		}
 	}
 }

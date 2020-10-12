@@ -8,7 +8,7 @@ struct mgu_seat_cb {
 	void *cl;
 };
 struct mgu_render_cb {
-	void (*f)(void *cl, float t);
+	bool (*f)(void *cl, float t);
 	void *cl;
 };
 
@@ -24,6 +24,7 @@ struct mgu_out {
 	int32_t res_px[2];
 	int32_t scale;
 	double ppmm;
+	double devicePixelRatio;
 };
 struct mgu_disp {
 	struct mgu_out out;
