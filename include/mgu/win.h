@@ -64,8 +64,8 @@ void mgu_win_run(struct mgu_win *win);
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 struct mgu_seat {
 	struct wl_seat *seat;
-	struct wl_keyboard *keyboard;
 	struct wl_pointer *pointer;
+	struct wl_keyboard *keyboard;
 	struct wl_touch *touch;
 	struct mgu_seat_cb cb;
 

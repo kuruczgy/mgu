@@ -3,17 +3,31 @@
 #include <stdint.h>
 
 enum mgu_input_ev {
-	MGU_DOWN = 1 << 0,
-	MGU_UP = 1 << 1,
-	MGU_MOVE = 1 << 2,
-	MGU_TOUCH = 1 << 3,
-	MGU_POINTER = 1 << 4,
-	MGU_BTN = 1 << 5,
+	MGU_POINTER = 1 << 0,
+	MGU_KEYBOARD = 1 << 1,
+	MGU_TOUCH = 1 << 2,
+	MGU_DOWN = 1 << 3,
+	MGU_UP = 1 << 4,
+	MGU_MOVE = 1 << 5,
+	MGU_BTN = 1 << 6,
 };
 struct mgu_input_event_args {
 	enum mgu_input_ev t;
 	uint32_t time;
 	union {
+		union {
+			struct {
+				double p[2];
+			} move;
+			struct {
+				double p[2];
+			} btn;
+		} pointer;
+		union {
+			struct {
+				uint32_t key;
+			} down;
+		} keyboard;
 		struct {
 			int id;
 			union {
@@ -23,14 +37,6 @@ struct mgu_input_event_args {
 				struct { } up;
 			};
 		} touch;
-		union {
-			struct {
-				double p[2];
-			} move;
-			struct {
-				double p[2];
-			} btn;
-		} pointer;
 	};
 };
 

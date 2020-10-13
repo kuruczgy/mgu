@@ -6,7 +6,7 @@
 #include <emscripten.h>
 EM_JS(void, mgu_internal_render_text, (const char *str, int *s), {
 	function createTextCanvas(text, params) {
-		let fontSize = params.fontSize || 32;
+		let fontSize = params.fontSize || 8;
 
 		const ctx = document.createElement("canvas").getContext("2d");
 
@@ -55,8 +55,38 @@ void mgu_text_finish(struct mgu_text *text) {
 #endif
 }
 
-GLuint mgu_tex_text(const struct mgu_text *text, const char *str,
-		int s[static 2]) {
+static PangoLayout *create_layout(const struct mgu_text *text, struct mgu_text_opts opts) {
+	PangoLayout *lay = pango_cairo_create_layout(text->ctx);
+	pango_layout_set_text(lay, opts.str, -1);
+	pango_layout_set_ellipsize(lay, PANGO_ELLIPSIZE_END);
+
+	if (opts.s[0] >= 0) {
+		pango_layout_set_width(lay, opts.s[0] * PANGO_SCALE);
+	}
+	if (opts.s[1] >= 0) {
+		pango_layout_set_height(lay, opts.s[1] * PANGO_SCALE);
+	}
+
+	if (opts.ch) {
+		pango_layout_set_alignment(lay, PANGO_ALIGN_CENTER);
+	}
+
+	PangoFontDescription *desc = pango_font_description_new();
+	pango_font_description_set_family_static(desc, "monospace");
+	pango_font_description_set_absolute_size(desc, opts.size_px * PANGO_SCALE);
+	pango_layout_set_font_description(lay, desc);
+	pango_font_description_free(desc);
+
+	return lay;
+}
+
+void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts, int s[static 2]) {
+	PangoLayout *lay = create_layout(text, opts);
+	pango_layout_get_pixel_size(lay, &s[0], &s[1]);
+	g_object_unref(lay);
+}
+
+GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int s[static 2]) {
 #ifdef __EMSCRIPTEN__
 	GLuint tex;
 	glGenTextures(1, &tex);
@@ -64,21 +94,29 @@ GLuint mgu_tex_text(const struct mgu_text *text, const char *str,
 	mgu_internal_render_text(str, s);
 	return tex;
 #else
-	PangoLayout *lay = pango_cairo_create_layout(text->ctx);
-	pango_layout_set_text(lay, str, -1);
+	PangoLayout *lay = create_layout(text, opts);
 
-	PangoFontDescription *desc = pango_font_description_from_string(
-		"DejaVu Sans Mono 32");
-	pango_layout_set_font_description(lay, desc);
-	pango_font_description_free(desc);
+	PangoRectangle ink_rect;
+	pango_layout_get_pixel_extents(lay, &ink_rect, NULL);
+	s[0] = ink_rect.x + ink_rect.width;
+	if (!opts.cv) {
+		s[1] = ink_rect.y + ink_rect.height;
+	} else {
+		s[1] = ink_rect.y / 2 + opts.s[1] / 2 + ink_rect.height / 2;
+	}
 
-	pango_layout_get_pixel_size(lay, &s[0], &s[1]);
 	struct mgu_pixel *buffer =
 		calloc(s[0] * s[1], sizeof(struct mgu_pixel));
 	cairo_surface_t *surf = cairo_image_surface_create_for_data(
 		(unsigned char *)buffer,CAIRO_FORMAT_ARGB32,s[0],s[1],4*s[0]);
 	cairo_t *cr = cairo_create(surf);
 
+	if (opts.cv) {
+		cairo_translate(cr, 0, opts.s[1] / 2 - ink_rect.height / 2 - ink_rect.y);
+	}
+
+	// cairo_set_source_rgba(cr, 1, 0, 0, 1);
+	// cairo_paint(cr);
 	cairo_set_source_rgba(cr, 0, 0, 0, 1);
 	pango_cairo_show_layout(cr, lay);
 

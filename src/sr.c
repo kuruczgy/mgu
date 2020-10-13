@@ -151,8 +151,27 @@ void sr_destroy(struct sr *sr) {
 static void sr_put_text(struct sr *sr, struct sr_spec spec) {
 	struct text t;
 	memcpy(t.p, spec.p, sizeof(float) * 4);
-	t.tex = mgu_tex_text(&sr->text, spec.text.s, t.tex_size);
+	struct mgu_text_opts opts = {
+		.str = spec.text.s,
+		.s = { (int)spec.p[2], (int)spec.p[3] },
+		.ch = spec.text.o & SR_CENTER_H,
+		.cv = spec.text.o & SR_CENTER_V,
+		.size_px = spec.text.px,
+	};
+	t.tex = mgu_tex_text(&sr->text, opts, t.tex_size);
 	vec_append(&sr->texts, &t);
+}
+void sr_measure_text(struct sr *sr, float p[static 2], struct sr_spec spec) {
+	struct mgu_text_opts opts = {
+		.str = spec.text.s,
+		.s = { (int)spec.p[2], (int)spec.p[3] },
+		.ch = spec.text.o & SR_CENTER_H,
+		.cv = spec.text.o & SR_CENTER_V,
+		.size_px = spec.text.px,
+	};
+	int s[2];
+	mgu_text_measure(&sr->text, opts, s);
+	p[0] = s[0], p[1] = s[1];
 }
 void sr_put(struct sr *sr, struct sr_spec spec) {
 	switch (spec.t) {
@@ -161,6 +180,18 @@ void sr_put(struct sr *sr, struct sr_spec spec) {
 		break;
 	case SR_TEXT:
 		sr_put_text(sr, spec);
+		break;
+	default:
+		;// asrt(false, "");
+	}
+}
+void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec) {
+	switch (spec.t) {
+	case SR_RECT:
+		memcpy(p, spec.p + 2, sizeof(float) * 2);
+		break;
+	case SR_TEXT:
+		sr_measure_text(sr, p, spec);
 		break;
 	default:
 		;// asrt(false, "");

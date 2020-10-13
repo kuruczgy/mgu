@@ -103,18 +103,45 @@ const struct wl_pointer_listener pointer_lis = {
 	pointer_axis_discrete
 };
 
+// wl_keyboard_listener
+static void keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard,
+		uint32_t format, int32_t fd, uint32_t size) {
+}
+static void keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
+		uint32_t serial, struct wl_surface *surface, struct wl_array *keys) {
+}
+static void keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
+		uint32_t serial, struct wl_surface *surface) {
+}
+static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
+		uint32_t serial, uint32_t time, uint32_t key, uint32_t _key_state) {
+	enum wl_keyboard_key_state key_state = _key_state;
+	if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		struct mgu_input_event_args ev = { .t = MGU_KEYBOARD | MGU_DOWN };
+		ev.keyboard.down.key = key;
+		input_event(data, ev, time);
+	}
+}
+static void keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
+		uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
+		uint32_t mods_locked, uint32_t group) {
+}
+static void keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
+		int32_t rate, int32_t delay) {
+}
+static const struct wl_keyboard_listener keyboard_lis = {
+	.keymap = keyboard_keymap,
+	.enter = keyboard_enter,
+	.leave = keyboard_leave,
+	.key = keyboard_key,
+	.modifiers = keyboard_modifiers,
+	.repeat_info = keyboard_repeat_info,
+};
+
 static void
 capabilities(void *data, struct wl_seat *wl_seat, uint32_t caps)
 {
 	struct mgu_seat *seat = data;
-	if (caps & WL_SEAT_CAPABILITY_TOUCH) {
-		if (!seat->touch) {
-			seat->touch = wl_seat_get_touch(wl_seat);
-			wl_touch_add_listener(seat->touch, &touch_lis, seat);
-		}
-	} else if (seat->touch) {
-		wl_touch_release(seat->touch), seat->touch = NULL;
-	}
 
 	if (caps & WL_SEAT_CAPABILITY_POINTER) {
 		if (!seat->pointer) {
@@ -124,6 +151,25 @@ capabilities(void *data, struct wl_seat *wl_seat, uint32_t caps)
 		}
 	} else if (seat->pointer) {
 		wl_pointer_release(seat->pointer), seat->pointer = NULL;
+	}
+
+	if (caps & WL_SEAT_CAPABILITY_KEYBOARD) {
+		if (!seat->keyboard) {
+			seat->keyboard = wl_seat_get_keyboard(wl_seat);
+			wl_keyboard_add_listener(seat->keyboard,
+				&keyboard_lis, seat);
+		}
+	} else if (seat->keyboard) {
+		wl_keyboard_release(seat->keyboard), seat->keyboard = NULL;
+	}
+
+	if (caps & WL_SEAT_CAPABILITY_TOUCH) {
+		if (!seat->touch) {
+			seat->touch = wl_seat_get_touch(wl_seat);
+			wl_touch_add_listener(seat->touch, &touch_lis, seat);
+		}
+	} else if (seat->touch) {
+		wl_touch_release(seat->touch), seat->touch = NULL;
 	}
 }
 
@@ -137,7 +183,7 @@ static const struct wl_seat_listener seat_lis = {
 static void
 handle_xdg_wm_base_ping(void *data, struct xdg_wm_base *shell, uint32_t serial)
 {
-    xdg_wm_base_pong(shell, serial);
+	xdg_wm_base_pong(shell, serial);
 }
 static const struct xdg_wm_base_listener wm_lis = { handle_xdg_wm_base_ping };
 
@@ -229,14 +275,11 @@ global_dump(void *data, struct wl_registry *registry,
 	fprintf(stderr, "%s\n", interface);
 }
 static void
-global_remove(void *data, struct wl_registry *registry,
-        uint32_t name)
-{
-}
+global_remove(void *data, struct wl_registry *registry, uint32_t name) { }
 const struct wl_registry_listener reg_lis = { global, global_remove };
 const struct wl_registry_listener mgu_wl_registry_listener_dump = {
-    global_dump,
-    global_remove
+	global_dump,
+	global_remove
 };
 
 static int disp_init_egl(struct mgu_disp *disp)

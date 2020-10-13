@@ -204,7 +204,7 @@ int main()
 
 	struct mgu_text mgu_text;
 	mgu_text_init(&mgu_text);
-	app.tex = mgu_tex_text(&mgu_text, "asdfg", app.tex_size);
+	app.tex = mgu_tex_text(&mgu_text, (struct mgu_text_opts){ .str = "asdfg", .s = { -1, -1 } }, app.tex_size);
 
 	app.sr = sr_create_opengl();
 

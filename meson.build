@@ -102,13 +102,13 @@ mgu_text = library(
 )
 mgu_text_dep = declare_dependency(link_with : mgu_text, include_directories : incdir)
 
-mgu_sr_gl = library(
+mgu_sr = library(
   'mgu-sr-gl',
   'src/sr.c',
   dependencies : [ glesv2, mgu_gl_dep, mgu_text_dep, ds_matrix_dep, ds_vec_dep ],
   include_directories : incdir
 )
-mgu_sr_gl_dep = declare_dependency(link_with : mgu_sr_gl, include_directories : incdir)
+mgu_sr_dep = declare_dependency(link_with : mgu_sr, include_directories : incdir)
 
 mgu_input = library(
   'mgu-input',
@@ -142,7 +142,7 @@ executable(
   include_directories: incdir,
   dependencies : [
     libtouch,
-    mgu_sr_gl_dep,
+    mgu_sr_dep,
     mgu_gl_dep,
     mgu_text_dep,
     mgu_win_dep,

@@ -22,8 +22,8 @@ struct sr_spec {
 	union {
 		struct {
 			const char *s;
-			// float w;
-			// enum sr_text_opts o;
+			int px;
+			enum sr_text_opts o;
 		} text;
 	};
 };
@@ -31,6 +31,7 @@ struct sr_spec {
 struct sr *sr_create_opengl();
 void sr_destroy(struct sr *sr);
 void sr_put(struct sr *sr, struct sr_spec spec);
+void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec);
 void sr_present(struct sr *sr, const float mat[static 9]);
 
 /*
