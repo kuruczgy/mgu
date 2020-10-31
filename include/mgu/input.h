@@ -21,6 +21,7 @@ struct mgu_input_event_args {
 			} move;
 			struct {
 				double p[2];
+				uint32_t state;
 			} btn;
 		} pointer;
 		union {

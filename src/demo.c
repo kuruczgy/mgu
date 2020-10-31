@@ -22,9 +22,9 @@ struct app {
 	struct libtouch_area *touch_area;
 };
 
-void render(void *cl, float t)
+bool render(void *env, float t)
 {
-	struct app *app = cl;
+	struct app *app = env;
 
 	int32_t scale = app->disp.out.scale;
 	glViewport(0, 0, app->win.size[0] * scale, app->win.size[1] * scale);
@@ -115,6 +115,8 @@ void render(void *cl, float t)
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	glDeleteBuffers(1, &buf);
+
+	return true;
 }
 
 const GLchar shader_frag_mandlebrot[] =
@@ -187,8 +189,8 @@ int main()
 		goto cleanup_disp;
 	}
 
-	app.disp.seat.cb = (struct mgu_seat_cb){ .f = seat_cb, .cl = &app };
-	app.win.render_cb = (struct mgu_render_cb){ .f = render, .cl = &app };
+	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
+	app.win.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
 
 	app.touch = libtouch_surface_create();
 	float area[] = { 0, 0, 10000, 10000 };

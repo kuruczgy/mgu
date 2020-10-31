@@ -4,12 +4,12 @@
 #include <mgu/input.h>
 
 struct mgu_seat_cb {
+	void *env;
 	void (*f)(void *cl, struct mgu_input_event_args ev);
-	void *cl;
 };
 struct mgu_render_cb {
+	void *env;
 	bool (*f)(void *cl, float t);
-	void *cl;
 };
 
 #ifdef __EMSCRIPTEN__
@@ -81,6 +81,10 @@ struct mgu_out {
 	bool configured;
 };
 
+struct mgu_global_cb {
+	void *env;
+	void (*f)(void *env, struct wl_registry *reg, uint32_t id, const char *i, uint32_t version);
+};
 struct mgu_disp {
 	struct wl_display *disp;
 	struct wl_registry *reg;
@@ -89,6 +93,7 @@ struct mgu_disp {
 	struct xdg_wm_base *wm;
 	struct zwlr_layer_shell_v1 *layer_shell;
 	struct mgu_seat seat;
+	struct mgu_global_cb global_cb;
 
 	double diagonal; /* physical diagonal of display (mm) */
 
@@ -132,6 +137,7 @@ struct mgu_win {
 /* All init functions MUST be given a zeroed memory area. */
 
 int mgu_disp_init(struct mgu_disp *disp);
+int mgu_disp_init_custom(struct mgu_disp *disp, struct mgu_global_cb global_cb);
 void mgu_disp_finish(struct mgu_disp *disp);
 
 int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp);

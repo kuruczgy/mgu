@@ -6,7 +6,7 @@ static void schedule_frame(struct mgu_win *win);
 
 static void redraw(struct mgu_win *win, float t)
 {
-	if (win->render_cb.f(win->render_cb.cl, t)) {
+	if (win->render_cb.f(win->render_cb.env, t)) {
 		eglSwapBuffers(win->disp->egl_dpy, win->egl_surf);
 	}
 	schedule_frame(win);

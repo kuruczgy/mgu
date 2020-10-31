@@ -16,7 +16,7 @@ static void input_event(struct mgu_seat *seat, struct mgu_input_event_args ev,
 		uint32_t time) {
 	ev.time = time;
 	if (seat->cb.f) {
-		seat->cb.f(seat->cb.cl, ev);
+		seat->cb.f(seat->cb.env, ev);
 	}
 }
 static void wl_touch_down(void *data, struct wl_touch *wl_touch,
@@ -80,9 +80,11 @@ static void pointer_button(void *data, struct wl_pointer *pointer,
 		uint32_t button, uint32_t state) {
 	struct mgu_seat *seat = data;
 	struct mgu_input_event_args ev = {
-		.t = MGU_POINTER | MGU_BTN | MGU_DOWN };
+		.t = MGU_POINTER | MGU_BTN };
 	memcpy(ev.pointer.btn.p, seat->pointer_p, sizeof(double) * 2);
-	if (button & BTN_LEFT && state == 1) {
+	if (button & BTN_LEFT) {
+		ev.t |= (state == 1 ? MGU_DOWN : MGU_UP);
+		ev.pointer.btn.state = state;
 		input_event(data, ev, time);
 	}
 }
@@ -266,6 +268,8 @@ global(void *data, struct wl_registry *reg,
 		if (disp->out.out) {
 			wl_output_add_listener(disp->out.out,&output_lis,disp);
 		}
+	} else if (disp->global_cb.f) {
+		disp->global_cb.f(disp->global_cb.env, reg, id, i, version);
 	}
 }
 static void
@@ -336,6 +340,10 @@ return_res:
 	return res;
 }
 
+int mgu_disp_init_custom(struct mgu_disp *disp, struct mgu_global_cb global_cb) {
+	disp->global_cb = global_cb;
+	mgu_disp_init(disp);
+}
 int mgu_disp_init(struct mgu_disp *disp)
 {
 	int res;
