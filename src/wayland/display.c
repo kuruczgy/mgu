@@ -7,6 +7,7 @@
 #include <string.h>
 #include <wayland-egl.h>
 #include <mgu/win.h>
+#include <sys/mman.h>
 
 static void wl_point(wl_fixed_t x, wl_fixed_t y, double p[static 2]) {
 	p[0] = wl_fixed_to_double(x);
@@ -108,6 +109,12 @@ const struct wl_pointer_listener pointer_lis = {
 // wl_keyboard_listener
 static void keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t format, int32_t fd, uint32_t size) {
+	// void *mem = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+	// if (mem == MAP_FAILED) {
+	// 	return;
+	// }
+	// fprintf(stderr, "keymap: %.*s\n", size, (char*)mem);
+	// munmap(mem, size);
 }
 static void keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t serial, struct wl_surface *surface, struct wl_array *keys) {
@@ -342,7 +349,7 @@ return_res:
 
 int mgu_disp_init_custom(struct mgu_disp *disp, struct mgu_global_cb global_cb) {
 	disp->global_cb = global_cb;
-	mgu_disp_init(disp);
+	return mgu_disp_init(disp);
 }
 int mgu_disp_init(struct mgu_disp *disp)
 {
@@ -405,3 +412,10 @@ void mgu_disp_finish(struct mgu_disp *disp)
 	/* TODO */
 }
 
+int mgu_disp_get_fd(struct mgu_disp *disp) {
+	return wl_display_get_fd(disp->disp);
+}
+int mgu_disp_dispatch(struct mgu_disp *disp) {
+	return wl_display_dispatch(disp->disp);
+}
+void mgu_disp_run(struct mgu_disp *disp);

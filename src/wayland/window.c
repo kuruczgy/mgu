@@ -268,7 +268,7 @@ int mgu_win_init_layer_bottom_panel(struct mgu_win *win, struct mgu_disp *disp,
 	win->type = MGU_WIN_LAYER;
 	win->layer.size[1] = size;
 	win->layer.exclusive_zone = size;
-	win->layer.anchor = 
+	win->layer.anchor =
 		ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
 		| ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
 		| ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
@@ -277,7 +277,20 @@ int mgu_win_init_layer_bottom_panel(struct mgu_win *win, struct mgu_disp *disp,
 
 void mgu_win_finish(struct mgu_win *win)
 {
-	/* TODO */
+	if (win->frame_cb) {
+		wl_callback_destroy(win->frame_cb);
+		win->frame_cb = NULL;
+	}
+
+	eglDestroySurface(win->disp->egl_dpy, win->egl_surf);
+	wl_egl_window_destroy(win->native);
+
+	if (win->type == MGU_WIN_LAYER) {
+		zwlr_layer_surface_v1_destroy(win->layer.surf);
+		wl_surface_destroy(win->surf);
+	} else {
+		/* TODO */
+	}
 }
 
 void mgu_win_run(struct mgu_win *win)

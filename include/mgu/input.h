@@ -30,7 +30,7 @@ struct mgu_input_event_args {
 			} down;
 		} keyboard;
 		struct {
-			int id;
+			uint32_t id;
 			union {
 				struct {
 					double p[2];

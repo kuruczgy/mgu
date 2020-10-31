@@ -139,13 +139,14 @@ struct mgu_win {
 int mgu_disp_init(struct mgu_disp *disp);
 int mgu_disp_init_custom(struct mgu_disp *disp, struct mgu_global_cb global_cb);
 void mgu_disp_finish(struct mgu_disp *disp);
+int mgu_disp_get_fd(struct mgu_disp *disp);
+int mgu_disp_dispatch(struct mgu_disp *disp);
 
 int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp);
 int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp);
 int mgu_win_init_layer_bottom_panel(struct mgu_win *win, struct mgu_disp *disp,
 	uint32_t size);
 void mgu_win_finish(struct mgu_win *win);
-
 void mgu_win_run(struct mgu_win *win);
 
 /* globals */
