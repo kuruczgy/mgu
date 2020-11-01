@@ -182,7 +182,7 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int 
 
 	// cairo_set_source_rgba(cr, 1, 0, 0, 1);
 	// cairo_paint(cr);
-	cairo_set_source_rgba(cr, 0, 0, 0, 1);
+	cairo_set_source_rgba(cr, 1, 1, 1, 1);
 	pango_cairo_show_layout(cr, lay);
 
 	g_object_unref(lay);
