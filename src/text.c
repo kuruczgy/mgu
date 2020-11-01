@@ -161,13 +161,13 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int 
 #else
 	PangoLayout *lay = create_layout(text, opts);
 
-	PangoRectangle ink_rect;
-	pango_layout_get_pixel_extents(lay, &ink_rect, NULL);
-	s[0] = ink_rect.x + ink_rect.width;
+	PangoRectangle logical_rect;
+	pango_layout_get_pixel_extents(lay, NULL, &logical_rect);
+	s[0] = logical_rect.x + logical_rect.width;
 	if (!opts.cv) {
-		s[1] = ink_rect.y + ink_rect.height;
+		s[1] = logical_rect.y + logical_rect.height;
 	} else {
-		s[1] = ink_rect.y / 2 + opts.s[1] / 2 + ink_rect.height / 2;
+		s[1] = logical_rect.y / 2 + opts.s[1] / 2 + logical_rect.height / 2;
 	}
 
 	struct mgu_pixel *buffer =
@@ -177,7 +177,7 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int 
 	cairo_t *cr = cairo_create(surf);
 
 	if (opts.cv) {
-		cairo_translate(cr, 0, opts.s[1] / 2 - ink_rect.height / 2 - ink_rect.y);
+		cairo_translate(cr, 0, opts.s[1] / 2 - logical_rect.height / 2 - logical_rect.y);
 	}
 
 	// cairo_set_source_rgba(cr, 1, 0, 0, 1);
