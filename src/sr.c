@@ -11,14 +11,11 @@ const GLchar shader_vert[] =
 "uniform mat3 mat;\n"
 "attribute vec3 pos;\n"
 "attribute vec4 val;\n"
-"attribute vec2 tex;\n"
 "varying vec4 v_val;\n"
-"varying vec2 v_tex;\n"
 "void main() {\n"
 "	vec3 ph = mat * vec3(pos.xy, 1);\n"
 "	gl_Position = vec4(ph.xy / ph.z, pos.z, 1);\n"
 "	v_val = val;\n"
-"	v_tex = tex;\n"
 "}\n";
 
 const GLchar shader_frag_color[] =
@@ -28,24 +25,24 @@ const GLchar shader_frag_color[] =
 
 const GLchar shader_frag_tex[] =
 "precision mediump float;\n"
+"uniform vec4 tex_color;\n"
 "varying vec4 v_val;\n"
-"varying vec2 v_tex;\n"
 "uniform sampler2D texture;\n"
 "void main() {\n"
-"	gl_FragColor = texture2D(texture, v_tex.xy);\n"
+"	gl_FragColor = tex_color * texture2D(texture, v_val.xy);\n"
 "}\n";
 
 struct vertex {
 	float pos[2];
 	float d;
 	float val[4];
-	float tex[2];
 };
-_Static_assert(sizeof(struct vertex) == 9 * sizeof(float), "");
+_Static_assert(sizeof(struct vertex) == 7 * sizeof(float), "");
 struct text {
 	GLuint tex;
 	float p[4];
 	int tex_size[2];
+	float color[4];
 };
 
 static void argb_color(float col[static 4], uint32_t c) {
@@ -67,9 +64,6 @@ static void make_quad(struct vec *vec, float p[static 4], uint32_t argb) {
 		v.pos[0] = p[0] + quad[i].x * p[2];
 		v.pos[1] = p[1] + quad[i].y * p[3];
 
-		v.tex[0] = quad[i].x;
-		v.tex[1] = quad[i].y;
-
 		v.d = d;
 
 		argb_color(v.val, argb);
@@ -80,7 +74,6 @@ static void make_quad(struct vec *vec, float p[static 4], uint32_t argb) {
 static void set_vertices(GLuint prog, GLuint buffer, const struct vertex *d, int n) {
 	GLint a_pos = glGetAttribLocation(prog, "pos");
 	GLint a_val = glGetAttribLocation(prog, "val");
-	GLint a_tex = glGetAttribLocation(prog, "tex");
 
 	glBindBuffer(GL_ARRAY_BUFFER, buffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(struct vertex) * n, d, GL_DYNAMIC_DRAW);
@@ -93,12 +86,6 @@ static void set_vertices(GLuint prog, GLuint buffer, const struct vertex *d, int
 			sizeof(struct vertex),
 			(void *)offsetof(struct vertex, val));
 		glEnableVertexAttribArray(a_val);
-	}
-	if (a_tex != -1) {
-		glVertexAttribPointer(a_tex, 2, GL_FLOAT, GL_FALSE,
-			sizeof(struct vertex),
-			(void *)offsetof(struct vertex, tex));
-		glEnableVertexAttribArray(a_tex);
 	}
 }
 static void set_mat(GLuint prog, const float mat[static 9]) {
@@ -159,6 +146,7 @@ static void sr_put_text(struct sr *sr, struct sr_spec spec) {
 		.size_px = spec.text.px,
 	};
 	t.tex = mgu_tex_text(&sr->text, opts, t.tex_size);
+	argb_color(t.color, spec.argb);
 	vec_append(&sr->texts, &t);
 }
 void sr_measure_text(struct sr *sr, float p[static 2], struct sr_spec spec) {
@@ -212,14 +200,15 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 
 	/* text stuff */
 	static const struct vertex quad[] = {
-		{ .pos = { 0, 0 }, .d = 0, .tex = { 0, 0 } },
-		{ .pos = { 0, 1 }, .d = 0, .tex = { 0, 1 } },
-		{ .pos = { 1, 0 }, .d = 0, .tex = { 1, 0 } },
-		{ .pos = { 1, 1 }, .d = 0, .tex = { 1, 1 } },
+		{ .pos = { 0, 0 }, .d = 0, .val = { 0, 0 } },
+		{ .pos = { 0, 1 }, .d = 0, .val = { 0, 1 } },
+		{ .pos = { 1, 0 }, .d = 0, .val = { 1, 0 } },
+		{ .pos = { 1, 1 }, .d = 0, .val = { 1, 1 } },
 	};
 	glUseProgram(sr->prog_tex);
 	set_vertices(sr->prog_tex, sr->vertex_buffer, quad, 4);
 	GLuint u_tex = glGetUniformLocation(sr->prog_tex, "texture");
+	GLuint u_tex_color = glGetUniformLocation(sr->prog_tex, "tex_color");
 
 	glActiveTexture(GL_TEXTURE0);
 	glUniform1i(u_tex, 0);
@@ -236,6 +225,9 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 		mat3_tran(M, (float[]){ t->p[0], t->p[1] });
 		mat3_mul_l(M, mat);
 		set_mat(sr->prog_tex, M);
+
+		glUniform4f(u_tex_color,
+			t->color[0], t->color[1], t->color[2], t->color[3]);
 
 		glBindTexture(GL_TEXTURE_2D, t->tex);
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
