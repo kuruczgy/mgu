@@ -50,7 +50,7 @@ struct mgu_win {
 int mgu_disp_init(struct mgu_disp *disp);
 void mgu_disp_finish(struct mgu_disp *disp);
 
-int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp);
+int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp, const char *title);
 void mgu_win_finish(struct mgu_win *win);
 
 void mgu_win_run(struct mgu_win *win);
@@ -115,6 +115,7 @@ struct mgu_win {
 		struct {
 			struct xdg_surface *surf;
 			struct xdg_toplevel *toplevel;
+			const char *title;
 		} xdg;
 		struct {
 			struct zwlr_layer_surface_v1 *surf;
@@ -142,8 +143,9 @@ void mgu_disp_finish(struct mgu_disp *disp);
 int mgu_disp_get_fd(struct mgu_disp *disp);
 int mgu_disp_dispatch(struct mgu_disp *disp);
 
-int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp);
-int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp);
+int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp, const char *title);
+int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp,
+	const char *title);
 int mgu_win_init_layer_bottom_panel(struct mgu_win *win, struct mgu_disp *disp,
 	uint32_t size);
 void mgu_win_finish(struct mgu_win *win);

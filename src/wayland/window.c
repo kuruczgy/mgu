@@ -171,6 +171,8 @@ static int init_xdg(struct mgu_win *win) {
 		goto cleanup_toplevel;
 	}
 
+	xdg_toplevel_set_title(win->xdg.toplevel, win->xdg.title);
+
 	res = 0;
 	goto cleanup_none;
 cleanup_toplevel:
@@ -256,11 +258,14 @@ cleanup_none:
 	return res;
 }
 
-int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp) {
-	return mgu_win_init_xdg(win, disp);
+int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp,
+		const char *title) {
+	return mgu_win_init_xdg(win, disp, title);
 }
-int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp) {
+int mgu_win_init_xdg(struct mgu_win *win, struct mgu_disp *disp,
+		const char *title) {
 	win->type = MGU_WIN_XDG;
+	win->xdg.title = title;
 	return init_common(win, disp);
 }
 int mgu_win_init_layer_bottom_panel(struct mgu_win *win, struct mgu_disp *disp,

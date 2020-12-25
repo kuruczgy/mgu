@@ -121,7 +121,8 @@ EM_JS(double, mgu_win_internal_init_resize_listener, (), {
 	return scale;
 });
 
-int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp) {
+int mgu_win_init(struct mgu_win *win, struct mgu_disp *disp,
+		const char *title) {
 	int res;
 	win->disp = disp;
 

@@ -184,7 +184,7 @@ int main()
 		goto cleanup_none;
 	}
 
-	if (mgu_win_init(&app.win, &app.disp) != 0) {
+	if (mgu_win_init(&app.win, &app.disp, "") != 0) {
 		res = 1;
 		goto cleanup_disp;
 	}

@@ -416,6 +416,13 @@ int mgu_disp_get_fd(struct mgu_disp *disp) {
 	return wl_display_get_fd(disp->disp);
 }
 int mgu_disp_dispatch(struct mgu_disp *disp) {
-	return wl_display_dispatch(disp->disp);
+	while (wl_display_prepare_read(disp->disp) != 0)
+		wl_display_dispatch_pending(disp->disp);
+
+	wl_display_read_events(disp->disp);
+	wl_display_dispatch_pending(disp->disp);
+	wl_display_flush(disp->disp);
+
+	return 0;
 }
 void mgu_disp_run(struct mgu_disp *disp);
