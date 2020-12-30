@@ -80,11 +80,10 @@ if em
 else
   mgu_win = library(
     'mgu-win',
-    'src/wayland/window.c',
-    'src/wayland/display.c',
+    'src/win_wayland.c',
     protocols_code,
     protocols_client_header,
-    dependencies : [ m, egl, wayland_client, wayland_egl ],
+    dependencies : [ m, egl, wayland_client, wayland_egl, ds_vec_dep ],
     include_directories : incdir
   )
 endif

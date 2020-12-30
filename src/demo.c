@@ -10,7 +10,6 @@
 
 struct app {
 	struct mgu_disp disp;
-	struct mgu_win win;
 	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran, uni_scale;
 
 	GLuint tex;
@@ -22,12 +21,13 @@ struct app {
 	struct libtouch_area *touch_area;
 };
 
-bool render(void *env, float t)
+bool render(void *env, struct mgu_win_surf *surf, float t)
 {
 	struct app *app = env;
 
-	int32_t scale = app->disp.out.scale;
-	glViewport(0, 0, app->win.size[0] * scale, app->win.size[1] * scale);
+	struct mgu_out *out = mgu_disp_get_default_output(&app->disp);
+	int32_t scale = out->scale;
+	glViewport(0, 0, surf->size[0] * scale, surf->size[1] * scale);
 
 	/* set blending */
 	glEnable(GL_BLEND);
@@ -38,7 +38,7 @@ bool render(void *env, float t)
 
 	float proj[9];
 	mat3_ident(proj);
-	mat3_proj(proj, app->win.size);
+	mat3_proj(proj, (int[]){ surf->size[0], surf->size[1] });
 
 	t /= 4.0f;
 	int off = (t - (int)t) * 100;
@@ -89,7 +89,7 @@ bool render(void *env, float t)
 
 	// mat3_scale(T, (float[]){ ss, ss });
 	mat3_mul_l(T, touch_T);
-	mat3_proj(T, app->win.size);
+	mat3_proj(T, (int[]){ surf->size[0], surf->size[1] });
 	mat3_t(T);
 
 	glUniformMatrix3fv(app->uni_tran, 1, GL_FALSE, T);
@@ -152,7 +152,8 @@ const GLchar shader_frag_msdf[] =
 "	gl_FragColor = mix(vec4(1, 1, 1, 1), vec4(0, 0, 0, 1), f);\n"
 "}\n";
 
-void seat_cb(void *cl, struct mgu_input_event_args ev) {
+void seat_cb(void *cl, struct mgu_win_surf *surf,
+		struct mgu_input_event_args ev) {
 	struct app *app = cl;
 	if (ev.t & MGU_TOUCH) {
 		const double *p = ev.touch.down_or_move.p;
@@ -184,13 +185,17 @@ int main()
 		goto cleanup_none;
 	}
 
-	if (mgu_win_init(&app.win, &app.disp, "") != 0) {
+	if (!mgu_disp_add_surf_default(&app.disp, "")) {
+		res = 1;
+		goto cleanup_disp;
+	}
+	if (!mgu_disp_add_surf_layer_bottom_panel(&app.disp, 300)) {
 		res = 1;
 		goto cleanup_disp;
 	}
 
 	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
-	app.win.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
+	app.disp.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
 
 	app.touch = libtouch_surface_create();
 	float area[] = { 0, 0, 10000, 10000 };
@@ -201,7 +206,7 @@ int main()
 		mgu_shader_frag_tex);
 	if (!app.program) {
 		res = 1;
-		goto cleanup_win;
+		goto cleanup_disp;
 	}
 	app.attrib_pos = glGetAttribLocation(app.program, "pos");
 	app.attrib_tex = glGetAttribLocation(app.program, "tex");
@@ -215,13 +220,11 @@ int main()
 
 	app.sr = sr_create_opengl();
 
-	mgu_win_run(&app.win);
+	mgu_disp_run(&app.disp);
 
 	res = 0;
 
 	sr_destroy(app.sr);
-cleanup_win:
-	mgu_win_finish(&app.win);
 cleanup_disp:
 	mgu_disp_finish(&app.disp);
 cleanup_none:
