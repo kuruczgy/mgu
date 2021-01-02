@@ -523,6 +523,9 @@ static void schedule_frame(struct mgu_win_surf *surf);
 
 static void redraw(struct mgu_win_surf *surf, float t)
 {
+	if (!surf->dirty) return;
+	surf->dirty = false;
+
 	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
 		surf->egl_surf, surf->disp->egl_ctx);
 	if (ret != EGL_TRUE) {
@@ -534,6 +537,7 @@ static void redraw(struct mgu_win_surf *surf, float t)
 		) {
 		eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
 	}
+
 	schedule_frame(surf);
 }
 
@@ -586,6 +590,7 @@ static void configure_common(struct mgu_win_surf *surf,
 	wl_surface_set_buffer_scale(surf->surf, scale);
 	wl_egl_window_resize(surf->native,
 		size[0] * scale, size[1] * scale, 0, 0);
+	mgu_win_surf_mark_dirty(surf);
 }
 static void configure_ack_common(struct mgu_win_surf *surf) {
 	if (surf->wait_for_configure) {
@@ -895,6 +900,19 @@ void mgu_disp_force_redraw(struct mgu_disp *disp) {
 	for (int i = 0; i < disp->surfaces.len; ++i) {
 		struct mgu_win_surf *surf_i =
 			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
+		mgu_win_surf_mark_dirty(surf_i);
 		redraw(surf_i, 0.0f);
 	}
+}
+
+void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp) {
+	for (int i = 0; i < disp->surfaces.len; ++i) {
+		struct mgu_win_surf *surf_i =
+			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
+		mgu_win_surf_mark_dirty(surf_i);
+	}
+}
+void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf) {
+	surf->dirty = true;
+	schedule_frame(surf);
 }

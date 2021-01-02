@@ -145,6 +145,8 @@ struct mgu_win_surf {
 	uint32_t size[2];
 
 	bool wait_for_configure, req_close;
+
+	bool dirty;
 	struct wl_callback *frame_cb;
 
 	/* egl stuff */
@@ -163,6 +165,9 @@ int mgu_disp_get_fd(struct mgu_disp *disp);
 int mgu_disp_dispatch(struct mgu_disp *disp);
 struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp);
 void mgu_disp_remove_surf(struct mgu_disp *disp, struct mgu_win_surf *surf);
+
+void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp);
+void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf);
 
 struct mgu_win_surf *mgu_disp_add_surf_default(struct mgu_disp *disp,
 	const char *title);
