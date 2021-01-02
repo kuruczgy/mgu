@@ -31,19 +31,19 @@ static void start_cb(void *env) {
 		}
 	}
 }
-static void move_cb(void *env, struct libtouch_rt rt) {
+static void move_cb(void *env, struct libtouch_gesture_data data) {
 	struct mgu_input_obj *in = env;
 	if (in->t == MGU_INPUT_OBJ_TYPE_TRAN) {
 		if (in->tran.move) {
-			in->tran.move(in->env, rt.t);
+			in->tran.move(in->env, data.rt.t);
 		}
 	}
 }
-static void end_cb(void *env, struct libtouch_rt rt) {
+static void end_cb(void *env, struct libtouch_gesture_data data) {
 	struct mgu_input_obj *in = env;
 	if (in->t == MGU_INPUT_OBJ_TYPE_TRAN) {
 		if (in->tran.move) {
-			in->tran.move(in->env, rt.t);
+			in->tran.move(in->env, data.rt.t);
 		}
 		if (in->tran.end) {
 			in->tran.end(in->env);
@@ -51,7 +51,7 @@ static void end_cb(void *env, struct libtouch_rt rt) {
 	}
 	if (in->t == MGU_INPUT_OBJ_TYPE_PRESS) {
 		if (in->press.f) {
-			if (hypotf(rt.t1, rt.t2) <
+			if (hypotf(data.rt.t1, data.rt.t2) <
 					in->im->touch_press_threshold) {
 				in->press.f(in->env);
 			}
@@ -62,10 +62,11 @@ void mgu_input_man_add(struct mgu_input_man *im, struct mgu_input_obj *in) {
 	struct input_entry e = {
 		.in = in,
 		.area = libtouch_surface_add_area(
-			im->surf, in->aabb, LIBTOUCH_T,
-			(struct libtouch_area_ops){
+			im->surf, in->aabb,
+			(struct libtouch_area_opts){
 				.env = in, .start = start_cb, .move = move_cb,
-				.end = end_cb
+				.end = end_cb,
+				.g = LIBTOUCH_T,
 			}
 		),
 	};

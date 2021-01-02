@@ -200,7 +200,7 @@ int main()
 	app.touch = libtouch_surface_create();
 	float area[] = { 0, 0, 10000, 10000 };
 	app.touch_area = libtouch_surface_add_area(app.touch, area,
-		LIBTOUCH_TSR, (struct libtouch_area_ops){ 0 });
+		(struct libtouch_area_opts){ .g = LIBTOUCH_TSR });
 
 	app.program = mgu_shader_program(mgu_shader_vert_simple,
 		mgu_shader_frag_tex);
