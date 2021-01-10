@@ -4,6 +4,7 @@
 #include <ds/vec.h>
 #include <ds/matrix.h>
 #include <mgu/input.h>
+#include <stdio.h>
 
 struct input_entry {
 	struct mgu_input_obj *in;
@@ -23,11 +24,15 @@ struct mgu_input_man *mgu_input_man_create(float touch_press_threshold) {
 	im->touch_press_threshold = touch_press_threshold;
 	return im;
 }
-static void start_cb(void *env) {
+static void start_cb(void *env, struct libtouch_gesture_data data) {
 	struct mgu_input_obj *in = env;
 	if (in->t == MGU_INPUT_OBJ_TYPE_TRAN) {
 		if (in->tran.start) {
 			in->tran.start(in->env);
+		}
+		if (in->tran.move) {
+			in->tran.move(in->env, data.t,
+				data.rt.t, data.V);
 		}
 	}
 }
@@ -35,7 +40,8 @@ static void move_cb(void *env, struct libtouch_gesture_data data) {
 	struct mgu_input_obj *in = env;
 	if (in->t == MGU_INPUT_OBJ_TYPE_TRAN) {
 		if (in->tran.move) {
-			in->tran.move(in->env, data.rt.t);
+			in->tran.move(in->env, data.t,
+				data.rt.t, data.V);
 		}
 	}
 }
@@ -43,7 +49,8 @@ static void end_cb(void *env, struct libtouch_gesture_data data) {
 	struct mgu_input_obj *in = env;
 	if (in->t == MGU_INPUT_OBJ_TYPE_TRAN) {
 		if (in->tran.move) {
-			in->tran.move(in->env, data.rt.t);
+			in->tran.move(in->env, data.t,
+				data.rt.t, data.V);
 		}
 		if (in->tran.end) {
 			in->tran.end(in->env);
@@ -67,6 +74,8 @@ void mgu_input_man_add(struct mgu_input_man *im, struct mgu_input_obj *in) {
 				.env = in, .start = start_cb, .move = move_cb,
 				.end = end_cb,
 				.g = LIBTOUCH_T,
+				.flags = in->t & MGU_INPUT_OBJ_TYPE_TRAN
+					? LIBTOUCH_V : 0
 			}
 		),
 	};

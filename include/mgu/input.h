@@ -58,7 +58,9 @@ struct mgu_input_obj {
 		} press;
 		struct {
 			void (*start)(void *env);
-			void (*move)(void *env, const float d[static 2]);
+			void (*move)(void *env, float t,
+				const float p[static 2],
+				const float v[static 2]);
 			void (*end)(void *env);
 		} tran;
 	};
