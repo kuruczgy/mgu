@@ -630,6 +630,9 @@ static const struct xdg_surface_listener xdg_surf_lis = {
 static void handle_xdg_toplevel_configure(void *data,
 		struct xdg_toplevel *xdg_toplevel,
 		int32_t width, int32_t height, struct wl_array *state) {
+	if (width == 0 || height == 0) {
+		width = height = 500;
+	}
 	configure_common(data, (int32_t[]){ width, height });
 }
 static void handle_xdg_toplevel_close(void *data, struct xdg_toplevel
