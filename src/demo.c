@@ -116,6 +116,7 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 
 	glDeleteBuffers(1, &buf);
 
+	mgu_win_surf_mark_dirty(surf);
 	return true;
 }
 
@@ -189,10 +190,12 @@ int main()
 		res = 1;
 		goto cleanup_disp;
 	}
+#if !defined(__EMSCRIPTEN__)
 	if (!mgu_disp_add_surf_layer_bottom_panel(&app.disp, 300)) {
 		res = 1;
 		goto cleanup_disp;
 	}
+#endif
 
 	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
 	app.disp.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };

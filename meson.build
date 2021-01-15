@@ -5,17 +5,16 @@ em = host_machine.system() == 'emscripten'
 protocols_code = []
 protocols_client_header = []
 
+egl = dependency('egl')
+glesv2 = dependency('glesv2')
+
 if em
   wayland_client = []
   wayland_egl = []
-  egl = []
-  glesv2 = []
   pangocairo = []
 else
   wayland_client = dependency('wayland-client')
   wayland_egl = dependency('wayland-egl')
-  egl = dependency('egl')
-  glesv2 = dependency('glesv2')
   pangocairo = dependency('pangocairo')
 
   # Wayland scanner stuff. Taken from wlroots (protocols/meson.build)
@@ -73,17 +72,17 @@ mgu_gl_dep = declare_dependency(link_with : mgu_gl, include_directories : incdir
 if em
   mgu_win = library(
     'mgu-win',
-    'src/win_em.c',
-    dependencies : [ m, egl ],
+    'src/win.c',
+    dependencies : [ m, egl, ds_vec_dep ],
     include_directories : incdir
   )
 else
   mgu_win = library(
     'mgu-win',
-    'src/win_wayland.c',
+    'src/win.c',
     protocols_code,
     protocols_client_header,
-    dependencies : [ m, egl, wayland_client, wayland_egl, ds_vec_dep ],
+    dependencies : [ m, egl, ds_vec_dep, wayland_client, wayland_egl ],
     include_directories : incdir
   )
 endif
@@ -135,7 +134,7 @@ mgu_input_dep = declare_dependency(link_with : mgu_input, include_directories : 
 # libmgu_dep = declare_dependency(include_directories : incdir, link_with: libmgu,
 #   sources : [ protocols_client_header ])
 
-executable(
+mgu_demo = library(
   'demo',
   'src/demo.c',
   include_directories: incdir,
@@ -149,11 +148,8 @@ executable(
     ds_matrix_dep
   ]
 )
+mgu_dep = declare_dependency(link_with: mgu_demo)
 
-if em
-  conf_data = configuration_data()
-  conf_data.set('exe_name', 'demo')
-  configure_file(input : 'index.html.in',
-		 output : 'index.html',
-		 configuration : conf_data)
+if not meson.is_subproject()
+  executable('demo', dependencies: mgu_dep)
 endif
