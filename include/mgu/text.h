@@ -3,8 +3,8 @@
 #include <GLES2/gl2.h>
 #include <stdbool.h>
 
-#ifdef __EMSCRIPTEN__
-struct mgu_text { };
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+struct mgu_text { int dummy; };
 #else
 #include <cairo/cairo.h>
 struct mgu_text {

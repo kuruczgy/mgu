@@ -1,12 +1,18 @@
+#define _POSIX_C_SOURCE 199309L
 #include <mgu/win.h>
 #include <EGL/egl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#ifdef __EMSCRIPTEN__
+#include <assert.h>
+#include <platform_utils/log.h>
+#include <time.h>
+#if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#elif defined(__ANDROID__)
+// nothing
 #else
 #include <EGL/eglext.h>
 #include <linux/input-event-codes.h>
@@ -30,6 +36,36 @@ EM_JS(double, mgu_win_internal_init_resize_listener, (), {
 });
 #endif // defined(__EMSCRIPTEN__)
 
+static void redraw_common(struct mgu_win_surf *surf) {
+	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
+		surf->egl_surf, surf->disp->egl_ctx);
+	if (ret != EGL_TRUE) {
+		return; // TODO: error
+	}
+
+	EGLint w, h;
+	eglQuerySurface(surf->disp->egl_dpy, surf->egl_surf, EGL_WIDTH, &w);
+	eglQuerySurface(surf->disp->egl_dpy, surf->egl_surf, EGL_HEIGHT, &h);
+	surf->size[0] = w, surf->size[1] = h;
+
+	struct timespec tp;
+	clock_gettime(CLOCK_MONOTONIC, &tp);
+	float t = tp.tv_sec + tp.tv_nsec * 1e-9f;
+
+	if (surf->disp->render_cb.f
+		&& surf->disp->render_cb.f(
+			surf->disp->render_cb.env, surf, t)
+		) {
+		eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
+
+		if (tp.tv_sec > surf->frame_counter_since) {
+			surf->frame_counter_since = tp.tv_sec;
+			pu_log_info("surf %p FPS: %d\n", surf, surf->frame_counter_n);
+			surf->frame_counter_n = 0;
+		}
+		++surf->frame_counter_n;
+	}
+}
 static int disp_init_egl(struct mgu_disp *disp)
 {
 	int res;
@@ -49,7 +85,7 @@ static int disp_init_egl(struct mgu_disp *disp)
 		EGL_NONE
 	};
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	disp->egl_dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 #else
 	disp->egl_dpy = eglGetPlatformDisplay(
@@ -79,6 +115,16 @@ static int disp_init_egl(struct mgu_disp *disp)
 		goto cleanup_dpy;
 	}
 
+#if defined(__ANDROID__)
+	ret = eglMakeCurrent(disp->egl_dpy, EGL_NO_SURFACE,
+		EGL_NO_SURFACE, disp->egl_ctx);
+	if (ret != EGL_TRUE) {
+		pu_log_info("%s failed surfaceless context\n", __func__);
+		res = -1;
+		goto cleanup_dpy;
+	}
+#endif
+
 	res = 0;
 	goto return_res;
 cleanup_dpy:
@@ -88,97 +134,99 @@ return_res:
 	return res;
 }
 
-static int surf_init_egl(struct mgu_win_surf *surf, struct mgu_disp *disp)
-{
-	int res;
+static int surf_init_egl(struct mgu_win_surf *surf) {
+	assert(!surf->egl_inited);
 
+	int res;
 #if defined(__EMSCRIPTEN__)
+	surf->egl_surf = eglCreateWindowSurface(surf->disp->egl_dpy,
+		surf->disp->egl_conf, 0, NULL);
+#elif defined(__ANDROID__)
+	surf->egl_surf = eglCreateWindowSurface(surf->disp->egl_dpy,
+		surf->disp->egl_conf, surf->disp->plat->app->window, NULL);
 #else
 	surf->native = wl_egl_window_create(surf->surf, 1, 1); // dummy size
 	if (!surf->native) {
 		res = -1;
 		goto cleanup_none;
 	}
-#endif // defined(__EMSCRIPTEN__)
-
-#if defined(__EMSCRIPTEN__)
-	surf->egl_surf = eglCreateWindowSurface(
-		disp->egl_dpy, disp->egl_conf, 0, NULL);
-#else
-	surf->egl_surf = eglCreatePlatformWindowSurface(
-		disp->egl_dpy, disp->egl_conf, surf->native, NULL);
-#endif // defined(__EMSCRIPTEN__)
+	surf->egl_surf = eglCreatePlatformWindowSurface(surf->disp->egl_dpy,
+		surf->disp->egl_conf, surf->native, NULL);
+#endif
 	if (!surf->egl_surf) {
 		res = -1;
 		goto cleanup_native;
 	}
 
-	EGLBoolean ret = eglMakeCurrent(disp->egl_dpy, surf->egl_surf,
-		surf->egl_surf, disp->egl_ctx);
+	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
+		surf->egl_surf, surf->disp->egl_ctx);
 	if (ret != EGL_TRUE) {
 		res = -1;
 		goto cleanup_surf;
 	}
 
+	surf->egl_inited = true;
 	res = 0;
 	goto cleanup_none;
 cleanup_surf:
-	eglDestroySurface(disp->egl_dpy, surf->egl_surf);
+	eglDestroySurface(surf->disp->egl_dpy, surf->egl_surf);
 cleanup_native:
-#if defined(__EMSCRIPTEN__)
-#else
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	wl_egl_window_destroy(surf->native);
-#endif // defined(__EMSCRIPTEN__)
+#endif
 cleanup_none:
 	return res;
 }
+static void surf_finish_egl(struct mgu_win_surf *surf) {
+	assert(surf->egl_inited);
+
+	eglDestroySurface(surf->disp->egl_dpy, surf->egl_surf);
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+	wl_egl_window_destroy(surf->native);
+#endif
+	surf->egl_inited = false;
+}
 
 static void surf_destroy(struct mgu_win_surf *surf) {
-#if defined(__EMSCRIPTEN__)
-#else
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	if (surf->frame_cb) {
 		wl_callback_destroy(surf->frame_cb);
 		surf->frame_cb = NULL;
 	}
+#endif
 
-	eglDestroySurface(surf->disp->egl_dpy, surf->egl_surf);
-	wl_egl_window_destroy(surf->native);
-#endif // defined(__EMSCRIPTEN__)
+	surf_finish_egl(surf);
 
 	switch (surf->type) {
 #if defined(__EMSCRIPTEN__)
 	case MGU_WIN_CANVAS:
-		/* TODO */
+		break;
+#elif defined(__ANDROID__)
+	case MGU_WIN_NATIVE_ACTIVITY:
 		break;
 #else
 	case MGU_WIN_XDG:
-		/* TODO */
+		xdg_toplevel_destroy(surf->xdg.toplevel);
+		xdg_surface_destroy(surf->xdg.surf);
 		break;
 	case MGU_WIN_LAYER:
 		zwlr_layer_surface_v1_destroy(surf->layer.surf);
 		wl_surface_destroy(surf->surf);
 		break;
-#endif // defined(__EMSCRIPTEN__)
+#endif
 	}
 
 	free(surf);
 }
 
 #if defined(__EMSCRIPTEN__)
-static EM_BOOL redraw(double t, void *env)
+static void redraw(struct mgu_win_surf *surf) {
+	redraw_common(surf);
+}
+static EM_BOOL redraw_cb(double t, void *env)
 {
 	struct mgu_win_surf *surf = env;
-
-	EMSCRIPTEN_WEBGL_CONTEXT_HANDLE handle =
-		emscripten_webgl_get_current_context();
-
-	int size[2];
-	emscripten_webgl_get_drawing_buffer_size(handle, &size[0], &size[1]);
-	surf->size[0] = size[0], surf->size[1] = size[1];
-
-	bool rendered = surf->disp->render_cb.f(
-		surf->disp->render_cb.env, surf, t / 1000.0);
-	if (rendered) eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
+	redraw(surf);
 	return EM_TRUE;
 }
 
@@ -310,30 +358,12 @@ static EM_BOOL touch_callback(int t, const EmscriptenTouchEvent *e, void *env) {
 	return EM_TRUE;
 }
 
-void mgu_disp_run(struct mgu_disp *disp) {
-	// we dont support multiple surfaces yet
-	if (disp->surfaces.len == 0) return;
-	struct mgu_win_surf *surf =
-		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
-
-	/* keyboard */
-	emscripten_set_keypress_callback("body", surf, EM_FALSE, key_callback);
-
-	/* touch */
-	emscripten_set_touchstart_callback("body", surf, EM_FALSE, touch_callback);
-	emscripten_set_touchend_callback("body", surf, EM_FALSE, touch_callback);
-	emscripten_set_touchmove_callback("body", surf, EM_FALSE, touch_callback);
-	emscripten_set_touchcancel_callback("body", surf, EM_FALSE, touch_callback);
-
-	emscripten_request_animation_frame_loop(redraw, surf);
-	emscripten_unwind_to_js_event_loop();
-}
 static int init_surf_canvas(struct mgu_win_surf *surf, struct mgu_disp *disp) {
 	int res;
 	surf->type = MGU_WIN_CANVAS;
 	surf->disp = disp;
 
-	if (surf_init_egl(surf, disp) != 0) {
+	if (surf_init_egl(surf) != 0) {
 		res = -1;
 		goto cleanup_none;
 	}
@@ -353,7 +383,67 @@ struct mgu_win_surf *mgu_disp_add_surf_canvas(struct mgu_disp *disp) {
 	}
 	return NULL;
 }
-#else // defined(__EMSCRIPTEN__)
+#elif defined(__ANDROID__)
+static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
+	struct mgu_disp *disp = app->userData;
+
+	// we dont support multiple surfaces yet
+	if (disp->surfaces.len == 0) return;
+	struct mgu_win_surf *surf =
+		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
+
+	switch (cmd) {
+	case APP_CMD_INIT_WINDOW:
+		if (disp->plat->app->window != NULL) {
+			if (surf_init_egl(surf) != 0) {
+				// error
+				break;
+			}
+			mgu_disp_force_redraw(disp);
+		}
+		break;
+	case APP_CMD_TERM_WINDOW:
+		surf_finish_egl(surf);
+		break;
+	default:
+		break;
+	}
+}
+static void redraw(struct mgu_win_surf *surf) {
+	redraw_common(surf);
+}
+static void idle_fn(void *env) {
+	struct mgu_disp *disp = env;
+
+	// we dont support multiple surfaces yet
+	if (disp->surfaces.len == 0) return;
+	struct mgu_win_surf *surf =
+		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
+
+	redraw(surf);
+}
+static int init_surf_native_activity(struct mgu_win_surf *surf,
+		struct mgu_disp *disp) {
+	int res;
+	surf->type = MGU_WIN_NATIVE_ACTIVITY;
+	surf->disp = disp;
+
+	res = 0;
+	goto cleanup_none;
+cleanup_none:
+	return res;
+}
+struct mgu_win_surf *mgu_disp_add_surf_native_activity(struct mgu_disp *disp) {
+	struct mgu_win_surf *surf = malloc(sizeof(struct mgu_win_surf));
+	*surf = (struct mgu_win_surf){ 0 };
+	int res = init_surf_native_activity(surf, disp);
+	if (res == 0) {
+		vec_append(&disp->surfaces, &surf);
+		return surf;
+	}
+	return NULL;
+}
+#else
 static struct mgu_out *find_out(struct mgu_disp *disp,
 		struct wl_output *wl_output) {
 	for (int i = 0; i < disp->outputs.len; ++i) {
@@ -694,44 +784,20 @@ const struct wl_registry_listener mgu_wl_registry_listener_dump = {
 };
 
 
-int mgu_disp_init_custom(struct mgu_disp *disp,
+int mgu_disp_init_custom(struct mgu_disp *disp, struct platform *plat,
 		struct mgu_global_cb global_cb) {
 	disp->global_cb = global_cb;
-	return mgu_disp_init(disp);
+	return mgu_disp_init(disp, plat);
 }
 
-
-int mgu_disp_get_fd(struct mgu_disp *disp) {
-	return wl_display_get_fd(disp->disp);
-}
-int mgu_disp_dispatch(struct mgu_disp *disp) {
-	while (wl_display_prepare_read(disp->disp) != 0)
-		wl_display_dispatch_pending(disp->disp);
-
-	wl_display_read_events(disp->disp);
-	wl_display_dispatch_pending(disp->disp);
-	wl_display_flush(disp->disp);
-
-	return 0;
-}
 static void schedule_frame(struct mgu_win_surf *surf);
 
-static void redraw(struct mgu_win_surf *surf, float t)
+static void redraw(struct mgu_win_surf *surf)
 {
 	if (!surf->dirty) return;
 	surf->dirty = false;
 
-	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
-		surf->egl_surf, surf->disp->egl_ctx);
-	if (ret != EGL_TRUE) {
-		return; // TODO: error
-	}
-	if (surf->disp->render_cb.f
-		&& surf->disp->render_cb.f(
-			surf->disp->render_cb.env, surf, t)
-		) {
-		eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
-	}
+	redraw_common(surf);
 
 	schedule_frame(surf);
 }
@@ -745,7 +811,7 @@ frame_cb(void *data, struct wl_callback *wl_callback, uint32_t time)
 		surf->frame_cb = NULL;
 	}
 
-	redraw(surf, time / 1000.0f);
+	redraw(surf);
 }
 static const struct wl_callback_listener frame_cb_lis = { .done = frame_cb };
 
@@ -781,7 +847,7 @@ static void configure_common(struct mgu_win_surf *surf,
 		int32_t size[static 2]) {
 	struct mgu_out *out = mgu_disp_get_default_output(surf->disp); // TODO: obviously not correct...
 	int32_t scale = out->scale;
-	surf->size[0] = size[0], surf->size[1] = size[1];
+	// surf->size[0] = size[0], surf->size[1] = size[1];
 	wl_surface_set_buffer_scale(surf->surf, scale);
 	wl_egl_window_resize(surf->native,
 		size[0] * scale, size[1] * scale, 0, 0);
@@ -847,7 +913,7 @@ static int init_surf_common(struct mgu_win_surf *surf, struct mgu_disp *disp) {
 
 	wl_surface_commit(surf->surf);
 
-	if (surf_init_egl(surf, disp) != 0) {
+	if (surf_init_egl(surf) != 0) {
 		res = -1;
 		goto cleanup_none;
 	}
@@ -972,7 +1038,8 @@ cleanup_none:
 	return res;
 }
 
-struct mgu_win_surf *mgu_disp_add_surf_xdg(struct mgu_disp *disp, const char *title) {
+struct mgu_win_surf *mgu_disp_add_surf_xdg(struct mgu_disp *disp,
+		const char *title) {
 	struct mgu_win_surf *surf = malloc(sizeof(struct mgu_win_surf));
 	*surf = (struct mgu_win_surf){ 0 };
 	int res = init_surf_xdg(surf, disp, title);
@@ -1040,32 +1107,6 @@ void mgu_disp_remove_surf(struct mgu_disp *disp, struct mgu_win_surf *surf) {
 	}
 }
 
-void mgu_disp_run(struct mgu_disp *disp) {
-	while (!disp->req_stop) {
-		wl_display_flush(disp->disp);
-
-		struct pollfd fds[1];
-		fds[0].fd = wl_display_get_fd(disp->disp);
-		fds[0].events = POLLIN | POLLERR | POLLHUP;
-		if (poll(fds, 1, -1) == -1) {
-			break;
-		}
-
-		if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-		if (fds[0].revents & POLLIN) {
-			mgu_disp_dispatch(disp);
-		}
-	}
-}
-
-void mgu_disp_force_redraw(struct mgu_disp *disp) {
-	for (int i = 0; i < disp->surfaces.len; ++i) {
-		struct mgu_win_surf *surf_i =
-			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
-		mgu_win_surf_mark_dirty(surf_i);
-		redraw(surf_i, 0.0f);
-	}
-}
 
 void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp) {
 	for (int i = 0; i < disp->surfaces.len; ++i) {
@@ -1074,52 +1115,66 @@ void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp) {
 		mgu_win_surf_mark_dirty(surf_i);
 	}
 }
-#endif // else defined(__EMSCRIPTEN__)
+#endif
 
 void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf) {
 #if defined(__EMSCRIPTEN__)
 	// TODO: lazy drawing
+#elif defined(__ANDROID__)
+	// TODO
 #else
 	surf->dirty = true;
 	schedule_frame(surf);
 #endif
 }
 
-int mgu_disp_init(struct mgu_disp *disp)
+int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 {
-	disp->surfaces = vec_new_empty(sizeof(struct mgu_win_surf *));
-#if defined(__EMSCRIPTEN__)
 	int res;
+	disp->plat = plat;
+	disp->surfaces = vec_new_empty(sizeof(struct mgu_win_surf *));
 
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+	// default fake values
+	struct mgu_out *out = &disp->out;
+	*out = (struct mgu_out){
+		.size_mm = { 25, 25 },
+		.res_px = { 150, 150 },
+		.scale = 1
+	};
+	double p = hypot(out->res_px[0], out->res_px[1]);
+	double mm = hypot(out->size_mm[0], out->size_mm[1]);
+	out->ppmm = p / mm;
+	out->ppmm /= out->scale;
+#endif
+
+#if defined(__EMSCRIPTEN__)
 	if (disp_init_egl(disp) != 0) {
 		res = -1;
 		goto cleanup_disp;
 	}
 
-	disp->out = (struct mgu_out){
-		.size_mm = { 25, 25 },
-		.res_px = { 150, 150 },
-		.scale = 1
-	};
 
 	double devicePixelRatio = mgu_win_internal_init_resize_listener();
 	disp->out.devicePixelRatio = devicePixelRatio;
 	fprintf(stderr, "%s devicePixelRatio: %f\n", __func__, devicePixelRatio);
-
-	struct mgu_out *out = &disp->out;
-	double p = hypot(out->res_px[0], out->res_px[1]);
-	double mm = hypot(out->size_mm[0], out->size_mm[1]);
-	out->ppmm = p / mm;
-	out->ppmm /= out->scale;
 
 	res = 0;
 	goto cleanup_none;
 cleanup_disp:
 cleanup_none:
 	return res;
-#else // defined(__EMSCRIPTEN__)
-	int res;
-
+#elif defined(__ANDROID__)
+	if (disp_init_egl(disp) != 0) {
+		res = -1;
+		goto cleanup_disp;
+	}
+	res = 0;
+	goto cleanup_none;
+cleanup_disp:
+cleanup_none:
+	return res;
+#else
 	disp->disp = wl_display_connect(NULL);
 	if (!disp->disp) {
 		res = -1; /* wl_display_connect failed */
@@ -1170,7 +1225,7 @@ cleanup_disp:
 	wl_display_disconnect(disp->disp);
 cleanup_none:
 	return res;
-#endif // else defined(__EMSCRIPTEN__)
+#endif
 }
 
 void mgu_disp_finish(struct mgu_disp *disp)
@@ -1181,7 +1236,9 @@ void mgu_disp_finish(struct mgu_disp *disp)
 		surf_destroy(surf);
 	}
 	vec_free(&disp->surfaces);
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
+	/* TODO */
+#elif defined(__ANDROID__)
 	/* TODO */
 #else
 	if (disp->reg) {
@@ -1194,15 +1251,17 @@ void mgu_disp_finish(struct mgu_disp *disp)
 
 struct mgu_win_surf *mgu_disp_add_surf_default(struct mgu_disp *disp,
 		const char *title) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 	return mgu_disp_add_surf_canvas(disp);
+#elif defined(__ANDROID__)
+	return mgu_disp_add_surf_native_activity(disp);
 #else
 	return mgu_disp_add_surf_xdg(disp, title);
 #endif
 }
 
 struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	return &disp->out;
 #else
 	if (disp->outputs.len > 0) {
@@ -1210,4 +1269,59 @@ struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp) {
 	}
 	return NULL;
 #endif
+}
+
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+static void mgu_disp_dispatch(struct mgu_disp *disp) {
+	while (wl_display_prepare_read(disp->disp) != 0)
+		wl_display_dispatch_pending(disp->disp);
+
+	wl_display_read_events(disp->disp);
+	wl_display_dispatch_pending(disp->disp);
+	wl_display_flush(disp->disp);
+}
+static void disp_dispatch(void *env, struct pollfd pfd) {
+	struct mgu_disp *disp = env;
+	if (pfd.revents & POLLIN) {
+		mgu_disp_dispatch(disp);
+		if (disp->req_stop) event_loop_stop(disp->el);
+	}
+}
+#endif
+
+void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el) {
+	disp->el = el;
+#if defined(__EMSCRIPTEN__)
+	// we dont support multiple surfaces yet
+	if (disp->surfaces.len == 0) return;
+	struct mgu_win_surf *surf =
+		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
+
+	/* keyboard */
+	emscripten_set_keypress_callback("body", surf, EM_FALSE, key_callback);
+
+	/* touch */
+	emscripten_set_touchstart_callback("body", surf, EM_FALSE, touch_callback);
+	emscripten_set_touchend_callback("body", surf, EM_FALSE, touch_callback);
+	emscripten_set_touchmove_callback("body", surf, EM_FALSE, touch_callback);
+	emscripten_set_touchcancel_callback("body", surf, EM_FALSE, touch_callback);
+
+	emscripten_request_animation_frame_loop(redraw_cb, surf);
+#elif defined(__ANDROID__)
+	disp->plat->app->userData = disp;
+	disp->plat->app->onAppCmd = engine_handle_cmd;
+	event_loop_set_idle_func(el, disp, idle_fn);
+#else
+	event_loop_add_fd(el, wl_display_get_fd(disp->disp),
+		POLLIN, disp, disp_dispatch);
+#endif
+}
+
+void mgu_disp_force_redraw(struct mgu_disp *disp) {
+	for (int i = 0; i < disp->surfaces.len; ++i) {
+		struct mgu_win_surf *surf_i =
+			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
+		mgu_win_surf_mark_dirty(surf_i);
+		redraw(surf_i);
+	}
 }

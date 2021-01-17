@@ -7,6 +7,9 @@
 #include <mgu/sr.h>
 #include <mgu/text.h>
 #include <mgu/win.h>
+#include <platform_utils/main.h>
+#include <platform_utils/event_loop.h>
+#include <platform_utils/log.h>
 
 struct app {
 	struct mgu_disp disp;
@@ -45,13 +48,13 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
-		.p = { off, 0, 100, 100 },
-		.argb = 0x4400FF00
+		.p = { off, 0, 100, surf->size[1] /2 },
+		.argb = 0xFF0000FF
 	});
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
 		.p = { 50, 50, 100, 100 },
-		.argb = 0xFF0000FF
+		.argb = 0xFF00FF00
 	});
 
 	char str_buf[16];
@@ -175,13 +178,14 @@ void seat_cb(void *cl, struct mgu_win_surf *surf,
 	}
 }
 
-int main()
+void platform_main(struct platform *plat)
 {
+	pu_log_info("%s start\n", __func__);
 	int res;
 
 	struct app app;
 	memset(&app, 0, sizeof(struct app));
-	if (mgu_disp_init(&app.disp) != 0) {
+	if (mgu_disp_init(&app.disp, plat) != 0) {
 		res = 1;
 		goto cleanup_none;
 	}
@@ -190,12 +194,13 @@ int main()
 		res = 1;
 		goto cleanup_disp;
 	}
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	if (!mgu_disp_add_surf_layer_bottom_panel(&app.disp, 300)) {
 		res = 1;
 		goto cleanup_disp;
 	}
 #endif
+	pu_log_info("%s added surfaces\n", __func__);
 
 	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
 	app.disp.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
@@ -208,6 +213,7 @@ int main()
 	app.program = mgu_shader_program(mgu_shader_vert_simple,
 		mgu_shader_frag_tex);
 	if (!app.program) {
+		pu_log_info("%s failed to create program\n", __func__);
 		res = 1;
 		goto cleanup_disp;
 	}
@@ -223,7 +229,10 @@ int main()
 
 	app.sr = sr_create_opengl();
 
-	mgu_disp_run(&app.disp);
+	struct event_loop *el = event_loop_create(plat);
+	mgu_disp_add_to_event_loop(&app.disp, el);
+	event_loop_run(el);
+	event_loop_destroy(el);
 
 	res = 0;
 
@@ -231,5 +240,6 @@ int main()
 cleanup_disp:
 	mgu_disp_finish(&app.disp);
 cleanup_none:
-	return res;
+	;
+	// return res;
 }

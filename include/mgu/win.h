@@ -1,15 +1,16 @@
-#ifndef MGU_WAYLAND_H
-#define MGU_WAYLAND_H
+#ifndef MGU_WIN_H
+#define MGU_WIN_H
 #include <stdbool.h>
 #include <mgu/input.h>
 #include <ds/vec.h>
 #include <EGL/egl.h>
+#include <platform_utils/event_loop.h>
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
+#elif defined(__ANDROID__)
 #else
 #include <wayland-client.h>
 #include <wayland-egl.h>
-
 #include "xdg-shell-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #endif
@@ -29,7 +30,8 @@ struct mgu_render_cb {
 struct mgu_seat {
 	struct mgu_seat_cb cb;
 	double pointer_p[2];
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
+#elif defined(__ANDROID__)
 #else
 	struct wl_seat *seat;
 	struct wl_pointer *pointer;
@@ -52,8 +54,9 @@ struct mgu_out {
 	int32_t res_px[2];
 	int32_t scale;
 	double ppmm;
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 	double devicePixelRatio;
+#elif defined(__ANDROID__)
 #else
 	struct wl_output *out;
 	bool configured;
@@ -70,7 +73,10 @@ struct mgu_disp {
 	struct vec surfaces; // vec<struct mgu_win_surf *>
 
 	struct mgu_seat seat;
-#ifdef __EMSCRIPTEN__
+
+	struct platform *plat;
+	struct event_loop *el;
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	struct mgu_out out;
 #else
 	struct wl_display *disp;
@@ -94,23 +100,30 @@ struct mgu_disp {
 
 struct mgu_win_surf {
 	EGLSurface egl_surf;
+	bool egl_inited;
+
+	float frame_rate;
+	long long int frame_counter_since;
+	int frame_counter_n;
 
 	struct mgu_disp *disp;
 	uint32_t size[2];
 
 	enum mgu_win_type {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 		MGU_WIN_CANVAS,
+#elif defined(__ANDROID__)
+		MGU_WIN_NATIVE_ACTIVITY,
 #else
 		MGU_WIN_XDG,
 		MGU_WIN_LAYER,
 #endif
 	} type;
 	union {
-#ifdef __EMSCRIPTEN__
-		struct {
-
-		} canvas;
+#if defined(__EMSCRIPTEN__)
+		// struct { } canvas;
+#elif defined(__ANDROID__)
+		// struct { } native_activity;
 #else
 		struct {
 			struct xdg_surface *surf;
@@ -124,8 +137,7 @@ struct mgu_win_surf {
 		} layer;
 #endif
 	};
-#ifdef __EMSCRIPTEN__
-#else
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	struct wl_egl_window *native;
 	struct wl_surface *surf;
 	bool wait_for_configure, req_close;
@@ -135,20 +147,22 @@ struct mgu_win_surf {
 };
 
 /* All init functions MUST be given a zeroed memory area. */
-int mgu_disp_init(struct mgu_disp *disp);
+int mgu_disp_init(struct mgu_disp *disp, struct platform *plat);
 void mgu_disp_finish(struct mgu_disp *disp);
-void mgu_disp_run(struct mgu_disp *disp);
 struct mgu_win_surf *mgu_disp_add_surf_default(struct mgu_disp *disp,
 	const char *title);
 struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp);
 void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf);
-#ifdef __EMSCRIPTEN__
+void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el);
+void mgu_disp_force_redraw(struct mgu_disp *disp);
+#if defined(__EMSCRIPTEN__)
 struct mgu_win_surf *mgu_disp_add_surf_canvas(struct mgu_disp *disp);
+#elif defined(__ANDROID__)
+struct mgu_win_surf *mgu_disp_add_surf_native_activity(struct mgu_disp *disp);
 #else
 
-int mgu_disp_init_custom(struct mgu_disp *disp, struct mgu_global_cb global_cb);
-int mgu_disp_get_fd(struct mgu_disp *disp);
-int mgu_disp_dispatch(struct mgu_disp *disp);
+int mgu_disp_init_custom(struct mgu_disp *disp, struct platform *plat,
+	struct mgu_global_cb global_cb);
 void mgu_disp_remove_surf(struct mgu_disp *disp, struct mgu_win_surf *surf);
 
 void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp);
@@ -159,8 +173,6 @@ struct mgu_win_surf *mgu_disp_add_surf_layer_bottom_panel(struct mgu_disp *disp,
 	uint32_t size);
 struct mgu_win_surf *mgu_disp_add_surf_layer_overlay_for_each_output(
 	struct mgu_disp *disp);
-
-void mgu_disp_force_redraw(struct mgu_disp *disp);
 
 /* globals */
 extern const struct wl_registry_listener mgu_wl_registry_listener_dump;

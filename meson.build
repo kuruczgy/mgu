@@ -1,6 +1,6 @@
 project('mgu', 'c', default_options : [ 'c_std=c11', 'default_library=static' ])
 
-em = host_machine.system() == 'emscripten'
+system = host_machine.system()
 
 protocols_code = []
 protocols_client_header = []
@@ -8,14 +8,14 @@ protocols_client_header = []
 egl = dependency('egl')
 glesv2 = dependency('glesv2')
 
-if em
-  wayland_client = []
-  wayland_egl = []
-  pangocairo = []
+deps_win = []
+deps_text = []
+
+if system == 'emscripten'
+elif system == 'linux-android'
 else
-  wayland_client = dependency('wayland-client')
-  wayland_egl = dependency('wayland-egl')
-  pangocairo = dependency('pangocairo')
+  deps_win += [ dependency('wayland-client'), dependency('wayland-egl') ]
+  deps_text += dependency('pangocairo')
 
   # Wayland scanner stuff. Taken from wlroots (protocols/meson.build)
   dep_scanner = dependency('wayland-scanner')
@@ -50,6 +50,11 @@ endif
 cc = meson.get_compiler('c')
 m = cc.find_library('m', required : false)
 
+pu_proj = subproject('platform_utils')
+pu_main_dep = pu_proj.get_variable('pu_main_dep')
+pu_log_dep = pu_proj.get_variable('pu_log_dep')
+pu_event_loop_dep = pu_proj.get_variable('pu_event_loop_dep')
+
 libtouch_proj = subproject('libtouch')
 libtouch = libtouch_proj.get_variable('libtouch_dep')
 
@@ -69,23 +74,14 @@ mgu_gl = library(
 )
 mgu_gl_dep = declare_dependency(link_with : mgu_gl, include_directories : incdir)
 
-if em
-  mgu_win = library(
-    'mgu-win',
-    'src/win.c',
-    dependencies : [ m, egl, ds_vec_dep ],
-    include_directories : incdir
-  )
-else
-  mgu_win = library(
-    'mgu-win',
-    'src/win.c',
-    protocols_code,
-    protocols_client_header,
-    dependencies : [ m, egl, ds_vec_dep, wayland_client, wayland_egl ],
-    include_directories : incdir
-  )
-endif
+mgu_win = library(
+  'mgu-win',
+  'src/win.c',
+  protocols_code,
+  protocols_client_header,
+  dependencies : [ m, egl, ds_vec_dep, pu_event_loop_dep, deps_win ],
+  include_directories : incdir
+)
 mgu_win_dep = declare_dependency(
   sources : [ protocols_client_header ],
   link_with : mgu_win,
@@ -95,7 +91,7 @@ mgu_win_dep = declare_dependency(
 mgu_text = library(
   'mgu-text',
   'src/text.c',
-  dependencies : [ pangocairo, mgu_gl_dep ],
+  dependencies : [ mgu_gl_dep, deps_text ],
   include_directories : incdir
 )
 mgu_text_dep = declare_dependency(link_with : mgu_text, include_directories : incdir)
@@ -116,24 +112,6 @@ mgu_input = library(
 )
 mgu_input_dep = declare_dependency(link_with : mgu_input, include_directories : incdir)
 
-# libmgu = static_library(
-#   'mgu',
-#   'src/wayland/display.c',
-#   'src/wayland/window.c',
-#   'src/render/render.c',
-#   'src/render/shaders.c',
-#   'src/render/texture.c',
-#   'src/render/text.c',
-#   'src/linalg.c',
-#   protocols_code,
-#   protocols_client_header,
-#   dependencies : [ m, wayland_client, wayland_egl, egl, glesv2, pangocairo ],
-#   include_directories: incdir
-# )
-# 
-# libmgu_dep = declare_dependency(include_directories : incdir, link_with: libmgu,
-#   sources : [ protocols_client_header ])
-
 mgu_demo = library(
   'demo',
   'src/demo.c',
@@ -145,7 +123,10 @@ mgu_demo = library(
     mgu_text_dep,
     mgu_win_dep,
     glesv2,
-    ds_matrix_dep
+    ds_matrix_dep,
+    pu_event_loop_dep,
+    pu_main_dep,
+    pu_log_dep,
   ]
 )
 mgu_dep = declare_dependency(link_with: mgu_demo)

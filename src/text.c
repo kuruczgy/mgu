@@ -2,7 +2,7 @@
 #include <mgu/text.h>
 #include <stdio.h>
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 EM_JS(void, mgu_internal_measure_text, (
 		int *s,
@@ -76,13 +76,15 @@ EM_JS(void, mgu_internal_render_text, (
 	HEAP32[(s >> 2) + 1] = ctx.canvas.height;
 	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ctx.canvas);
 });
+#elif defined(__ANDROID__)
+// TODO
 #else
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 #endif
 
 void mgu_text_init(struct mgu_text *text) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 #else
 	cairo_surface_t *temp = cairo_image_surface_create(
 		CAIRO_FORMAT_ARGB32, 0, 0);
@@ -91,14 +93,13 @@ void mgu_text_init(struct mgu_text *text) {
 #endif
 }
 void mgu_text_finish(struct mgu_text *text) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 #else
 	cairo_destroy(text->ctx);
 #endif
 }
 
-#ifdef __EMSCRIPTEN__
-#else
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 static PangoLayout *create_layout(const struct mgu_text *text, struct mgu_text_opts opts) {
 	PangoLayout *lay = pango_cairo_create_layout(text->ctx);
 	pango_layout_set_text(lay, opts.str, -1);
@@ -126,7 +127,7 @@ static PangoLayout *create_layout(const struct mgu_text *text, struct mgu_text_o
 #endif
 
 void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts, int s[static 2]) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 	mgu_internal_measure_text(
 		s,
 		opts.str,
@@ -136,6 +137,8 @@ void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts, in
 		opts.ch,
 		opts.cv
 	);
+#elif defined(__ANDROID__)
+	// TODO
 #else
 	PangoLayout *lay = create_layout(text, opts);
 	pango_layout_get_pixel_size(lay, &s[0], &s[1]);
@@ -144,7 +147,7 @@ void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts, in
 }
 
 GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int s[static 2]) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__)
 	GLuint tex;
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -158,6 +161,8 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int 
 		opts.cv
 	);
 	return tex;
+#elif defined(__ANDROID__)
+	// TODO
 #else
 	PangoLayout *lay = create_layout(text, opts);
 
