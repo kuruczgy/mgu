@@ -13,7 +13,7 @@
 
 struct app {
 	struct mgu_disp disp;
-	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran, uni_scale;
+	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran;
 
 	GLuint tex;
 	int tex_size[2];
@@ -61,9 +61,9 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	snprintf(str_buf, 16, "off: %d", off);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
-		.p = { off, 200, 0, 0 },
-		.argb = 0xFF000000,
-		.text = { .s = str_buf }
+		.p = { off, 200, -1, -1 },
+		.argb = 0xFFFF0000,
+		.text = { .s = str_buf, .px = 30 }
 	});
 
 	sr_present(app->sr, proj);
@@ -101,7 +101,7 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	GLuint buf;
 	glGenBuffers(1, &buf);
 	glBindBuffer(GL_ARRAY_BUFFER, buf);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 4, a_pos, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 8, a_pos, GL_STATIC_DRAW);
 
 	glVertexAttribPointer(app->attrib_pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
 	glVertexAttribPointer(app->attrib_tex, 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -113,6 +113,8 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	glBindTexture(GL_TEXTURE_2D, app->tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glUniform1i(app->uni_tex, 0);
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -221,11 +223,14 @@ void platform_main(struct platform *plat)
 	app.attrib_tex = glGetAttribLocation(app.program, "tex");
 	app.uni_tran = glGetUniformLocation(app.program, "mat");
 	app.uni_tex = glGetUniformLocation(app.program, "texture");
-	app.uni_scale = glGetUniformLocation(app.program, "scale");
 
 	struct mgu_text mgu_text;
 	mgu_text_init(&mgu_text);
-	app.tex = mgu_tex_text(&mgu_text, (struct mgu_text_opts){ .str = "asdfg", .s = { -1, -1 } }, app.tex_size);
+	app.tex = mgu_tex_text(&mgu_text, (struct mgu_text_opts){
+		.str = "asdfg",
+		.s = { -1, -1 },
+		.size_px = 30,
+	}, app.tex_size);
 
 	app.sr = sr_create_opengl();
 

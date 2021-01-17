@@ -30,7 +30,7 @@ EM_JS(void, mgu_internal_render_text, (
 		ctx.font = size_px + "px monospace";
 		ctx.textAlign = ch ? "center" : "left";
 		ctx.textBaseline = "top";
-		ctx.fillStyle = "black";
+		ctx.fillStyle = "white";
 	}
 	// https://stackoverflow.com/a/16599668
 	function get_lines(ctx, text, max_width) {
@@ -56,8 +56,7 @@ EM_JS(void, mgu_internal_render_text, (
 		ctx.canvas.width = sx;
 		ctx.canvas.height = sy;
 		let bb_h = line_spacing * lines.length;
-		ctx.fillStyle = "#00000000";
-		ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+		ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 		set_params(ctx);
 		for (let i = 0; i < lines.length; i++) {
 			ctx.fillText(
@@ -74,6 +73,10 @@ EM_JS(void, mgu_internal_render_text, (
 	render_lines(ctx, lines);
 	HEAP32[s >> 2] = ctx.canvas.width;
 	HEAP32[(s >> 2) + 1] = ctx.canvas.height;
+
+	// https://stackoverflow.com/a/46225744
+	gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+
 	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ctx.canvas);
 });
 #elif defined(__ANDROID__)
