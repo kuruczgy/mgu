@@ -36,7 +36,7 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-	glClearColor(1.0, 1.0, 0.0, 1.0);
+	glClearColor(179/255.0f, 182/255.0f, 183/255.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	float proj[9];
@@ -48,20 +48,52 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
-		.p = { off, 0, 100, surf->size[1] /2 },
-		.argb = 0xFF0000FF
-	});
-	sr_put(app->sr, (struct sr_spec){
-		.t = SR_RECT,
-		.p = { 50, 50, 100, 100 },
-		.argb = 0xFF00FF00
+		.p = { off, 0, 300, surf->size[1] / 4 },
+		.argb = 0xFF2ECC71
 	});
 
+	uint32_t corner_color[] = {
+		0xFF3498DB,
+		0xFF9B59B6,
+		0xFFF1C40F,
+		0xFFFFFFFF,
+	};
+	float rect_s = 100;
+	for (int i = 0; i < 4; ++i) {
+		float px = i % 2 == 0 ? 0 : surf->size[0] - rect_s;
+		float py = i/2 % 2 == 0 ? 0 : surf->size[1] - rect_s;
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { px, py, rect_s, rect_s },
+			.argb = corner_color[i]
+		});
+	}
+
+	for (int i = 0; i < 2; ++i) {
+		float line_w = 1;
+		struct sr_spec spec = {
+			.t = SR_RECT,
+			.p = { 0, 0, line_w, line_w },
+			.argb = 0xFFFFFFFF
+		};
+		spec.p[i] = surf->size[i] / 2.0f;
+		spec.p[(i+1)%2+2] = surf->size[(i+1)%2];
+		sr_put(app->sr, spec);
+	}
+
 	char str_buf[16];
-	snprintf(str_buf, 16, "off: %d", off);
+	snprintf(str_buf, 16, "%dx%d", surf->size[0], surf->size[1]);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
-		.p = { off, 200, -1, -1 },
+		.p = { 0, 0, surf->size[0], surf->size[1] },
+		.argb = 0xFF000000,
+		.text = { .s = str_buf, .px = 100, .o = SR_CENTER }
+	});
+
+	snprintf(str_buf, 16, "pos_x=%dpx", off);
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_TEXT,
+		.p = { off, surf->size[1] / 4, -1, -1 },
 		.argb = 0xFFFF0000,
 		.text = { .s = str_buf, .px = 30 }
 	});
@@ -196,7 +228,7 @@ void platform_main(struct platform *plat)
 		res = 1;
 		goto cleanup_disp;
 	}
-#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__) && 0
 	if (!mgu_disp_add_surf_layer_bottom_panel(&app.disp, 300)) {
 		res = 1;
 		goto cleanup_disp;
