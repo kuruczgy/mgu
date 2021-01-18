@@ -215,7 +215,6 @@ void platform_main(struct platform *plat)
 	app.program = mgu_shader_program(mgu_shader_vert_simple,
 		mgu_shader_frag_tex);
 	if (!app.program) {
-		pu_log_info("%s failed to create program\n", __func__);
 		res = 1;
 		goto cleanup_disp;
 	}
@@ -225,14 +224,14 @@ void platform_main(struct platform *plat)
 	app.uni_tex = glGetUniformLocation(app.program, "texture");
 
 	struct mgu_text mgu_text;
-	mgu_text_init(&mgu_text);
+	mgu_text_init(&mgu_text, plat);
 	app.tex = mgu_tex_text(&mgu_text, (struct mgu_text_opts){
 		.str = "asdfg",
 		.s = { -1, -1 },
 		.size_px = 30,
 	}, app.tex_size);
 
-	app.sr = sr_create_opengl();
+	app.sr = sr_create_opengl(plat);
 
 	struct event_loop *el = event_loop_create(plat);
 	mgu_disp_add_to_event_loop(&app.disp, el);

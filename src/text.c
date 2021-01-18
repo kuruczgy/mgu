@@ -1,6 +1,7 @@
 #include <mgu/gl.h>
 #include <mgu/text.h>
-#include <stdio.h>
+#include <string.h>
+#include <platform_utils/log.h>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -80,14 +81,37 @@ EM_JS(void, mgu_internal_render_text, (
 	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ctx.canvas);
 });
 #elif defined(__ANDROID__)
-// TODO
+// see:
+// https://web.archive.org/web/20120625232734/http://java.sun.com/docs/books/jni/html/other.html
+jobject JNU_NewStringNative(JNIEnv *env, const char *str) {
+	jclass Class_java_lang_String = (*env)->FindClass(env, "java/lang/String");
+	if (Class_java_lang_String == NULL) return NULL;
+
+	jmethodID MID_String_init = (*env)->GetMethodID(env, Class_java_lang_String, "<init>", "([B)V");
+	if (MID_String_init == NULL) return NULL;
+
+	int len = strlen(str);
+	jbyteArray bytes = (*env)->NewByteArray(env, len);
+	if (bytes != NULL) {
+		(*env)->SetByteArrayRegion(env, bytes, 0, len, (jbyte *)str);
+		jobject result = (*env)->NewObject(env, Class_java_lang_String, MID_String_init, bytes);
+		(*env)->DeleteLocalRef(env, bytes);
+		return result;
+	} /* else fall through */
+	return NULL;
+}
+#include <jni.h>
 #else
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 #endif
 
-void mgu_text_init(struct mgu_text *text) {
-#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+void mgu_text_init(struct mgu_text *text, struct platform *plat) {
+	text->plat = plat;
+#if defined(__EMSCRIPTEN__)
+#elif defined(__ANDROID__)
+	JavaVM *vm = text->plat->app->activity->vm;
+	(*vm)->AttachCurrentThread(vm, &text->jni_env, NULL);
 #else
 	cairo_surface_t *temp = cairo_image_surface_create(
 		CAIRO_FORMAT_ARGB32, 0, 0);
@@ -96,7 +120,10 @@ void mgu_text_init(struct mgu_text *text) {
 #endif
 }
 void mgu_text_finish(struct mgu_text *text) {
-#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+#if defined(__EMSCRIPTEN__)
+#elif defined(__ANDROID__)
+	JavaVM *vm = text->plat->app->activity->vm;
+	(*vm)->DetachCurrentThread(vm);
 #else
 	cairo_destroy(text->ctx);
 #endif
@@ -165,7 +192,82 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts, int 
 	);
 	return tex;
 #elif defined(__ANDROID__)
-	// TODO
+	// see:
+	// https://arm-software.github.io/opengl-es-sdk-for-android/high_quality_text.html#highQualityTextIntroduction
+#define check if ((*env)->ExceptionCheck(env) == JNI_TRUE) goto err
+	JNIEnv *env = text->jni_env;
+
+	check;
+
+	if ((*env)->PushLocalFrame(env, 32) != 0) goto err;
+
+	jobject obj_str = JNU_NewStringNative(env, opts.str);
+	if (!obj_str) goto err;
+
+	jclass class_Paint = (*env)->FindClass(env, "android/graphics/Paint"); check;
+	jclass class_Bitmap = (*env)->FindClass(env, "android/graphics/Bitmap"); check;
+	jclass class_Bitmap_Config = (*env)->FindClass(env, "android/graphics/Bitmap$Config"); check;
+	jclass class_Canvas = (*env)->FindClass(env, "android/graphics/Canvas"); check;
+	jclass class_GLUtils = (*env)->FindClass(env, "android/opengl/GLUtils"); check;
+
+	jmethodID ctor_Paint = (*env)->GetMethodID(env, class_Paint, "<init>", "()V"); check;
+	jmethodID mid_setARGB = (*env)->GetMethodID(env, class_Paint, "setARGB", "(IIII)V"); check;
+	jmethodID mid_setTextSize = (*env)->GetMethodID(env, class_Paint, "setTextSize", "(F)V"); check;
+	jmethodID mid_measureText = (*env)->GetMethodID(env, class_Paint, "measureText",
+		"(Ljava/lang/String;)F"); check;
+	jmethodID mid_createBitmap = (*env)->GetStaticMethodID(env, class_Bitmap,
+		"createBitmap", "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;"); check;
+	jmethodID mid_eraseColor = (*env)->GetMethodID(env, class_Bitmap, "eraseColor", "(I)V"); check;
+	jmethodID ctor_Canvas = (*env)->GetMethodID(env, class_Canvas,
+		"<init>", "(Landroid/graphics/Bitmap;)V"); check;
+	jmethodID mid_drawText = (*env)->GetMethodID(env, class_Canvas,
+		"drawText", "(Ljava/lang/String;FFLandroid/graphics/Paint;)V"); check;
+	jmethodID mid_texImage2D = (*env)->GetStaticMethodID(env, class_GLUtils,
+		"texImage2D", "(IIILandroid/graphics/Bitmap;I)V"); check;
+
+	jfieldID fid_ARGB_8888 = (*env)->GetStaticFieldID(env, class_Bitmap_Config,
+		"ARGB_8888", "Landroid/graphics/Bitmap$Config;"); check;
+
+	jobject obj_argb_8888 = (*env)->GetStaticObjectField(env, class_Bitmap_Config, fid_ARGB_8888); check;
+	jobject obj_paint = (*env)->NewObject(env, class_Paint, ctor_Paint); check;
+
+	(*env)->CallVoidMethod(env, obj_paint, mid_setARGB, (jint)255, (jint)255, (jint)255, (jint)255); check;
+
+	jfloat aFontSize = opts.size_px;
+	(*env)->CallVoidMethod(env, obj_paint, mid_setTextSize, aFontSize); check;
+
+	jfloat realTextWidth = (*env)->CallFloatMethod(env, obj_paint, mid_measureText, obj_str); check;
+
+	jint bitmap_w = (jint)(realTextWidth + 2.0f), bitmap_h = (jint)(aFontSize + 2.0f);
+	jobject obj_bitmap = (*env)->CallStaticObjectMethod(env, class_Bitmap,
+		mid_createBitmap, bitmap_w, bitmap_h, obj_argb_8888); check;
+
+	jint color = 0x000000FF;
+	(*env)->CallVoidMethod(env, obj_bitmap, mid_eraseColor, color); check;
+
+	jobject obj_canvas = (*env)->NewObject(env, class_Canvas, ctor_Canvas, obj_bitmap); check;
+
+	jfloat pos_x = 1.0f, pos_y = 1.0f + aFontSize * 0.75f;
+	(*env)->CallVoidMethod(env, obj_canvas, mid_drawText, obj_str, pos_x, pos_y, obj_paint); check;
+
+	GLuint tex;
+	glGenTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D, tex);
+
+	(*env)->CallStaticVoidMethod(env, class_GLUtils, mid_texImage2D,
+		(jint)GL_TEXTURE_2D, (jint)0, (jint)GL_RGBA, obj_bitmap, (jint)0); check;
+
+	// const char *test_res = (*env)->GetStringUTFChars(env, obj_str, NULL); check;
+	// pu_log_info("%s test_res: %s\n", __func__, test_res);
+	// (*env)->ReleaseStringUTFChars(env, obj_str, test_res);
+
+	(*env)->PopLocalFrame(env, NULL);
+
+	s[0] = bitmap_w, s[1] = bitmap_h;
+	return tex;
+err:
+	return 0;
+#undef check
 #else
 	PangoLayout *lay = create_layout(text, opts);
 

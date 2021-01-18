@@ -1,5 +1,6 @@
 #ifndef MGU_SR_H
 #define MGU_SR_H
+#include <platform_utils/main.h>
 
 struct sr;
 
@@ -28,7 +29,7 @@ struct sr_spec {
 	};
 };
 
-struct sr *sr_create_opengl();
+struct sr *sr_create_opengl(struct platform *plat);
 void sr_destroy(struct sr *sr);
 void sr_put(struct sr *sr, struct sr_spec spec);
 void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec);

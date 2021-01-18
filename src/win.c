@@ -37,6 +37,7 @@ EM_JS(double, mgu_win_internal_init_resize_listener, (), {
 #endif // defined(__EMSCRIPTEN__)
 
 static void redraw_common(struct mgu_win_surf *surf) {
+	// assert(surf->egl_inited);
 	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
 		surf->egl_surf, surf->disp->egl_ctx);
 	if (ret != EGL_TRUE) {
@@ -384,6 +385,19 @@ struct mgu_win_surf *mgu_disp_add_surf_canvas(struct mgu_disp *disp) {
 	return NULL;
 }
 #elif defined(__ANDROID__)
+static void redraw(struct mgu_win_surf *surf) {
+	redraw_common(surf);
+}
+static void idle_fn(void *env) {
+	struct mgu_disp *disp = env;
+
+	// we dont support multiple surfaces yet
+	if (disp->surfaces.len == 0) return;
+	struct mgu_win_surf *surf =
+		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
+
+	redraw(surf);
+}
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 	struct mgu_disp *disp = app->userData;
 
@@ -400,27 +414,16 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 				break;
 			}
 			mgu_disp_force_redraw(disp);
+			event_loop_set_idle_func(disp->el, disp, idle_fn);
 		}
 		break;
 	case APP_CMD_TERM_WINDOW:
+		event_loop_set_idle_func(disp->el, NULL, NULL);
 		surf_finish_egl(surf);
 		break;
 	default:
 		break;
 	}
-}
-static void redraw(struct mgu_win_surf *surf) {
-	redraw_common(surf);
-}
-static void idle_fn(void *env) {
-	struct mgu_disp *disp = env;
-
-	// we dont support multiple surfaces yet
-	if (disp->surfaces.len == 0) return;
-	struct mgu_win_surf *surf =
-		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
-
-	redraw(surf);
 }
 static int init_surf_native_activity(struct mgu_win_surf *surf,
 		struct mgu_disp *disp) {
@@ -1310,7 +1313,6 @@ void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el) {
 #elif defined(__ANDROID__)
 	disp->plat->app->userData = disp;
 	disp->plat->app->onAppCmd = engine_handle_cmd;
-	event_loop_set_idle_func(el, disp, idle_fn);
 #else
 	event_loop_add_fd(el, wl_display_get_fd(disp->disp),
 		POLLIN, disp, disp_dispatch);

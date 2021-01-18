@@ -91,7 +91,7 @@ mgu_win_dep = declare_dependency(
 mgu_text = library(
   'mgu-text',
   'src/text.c',
-  dependencies : [ mgu_gl_dep, deps_text ],
+  dependencies : [ mgu_gl_dep, pu_main_dep, deps_text ],
   include_directories : incdir
 )
 mgu_text_dep = declare_dependency(link_with : mgu_text, include_directories : incdir)
@@ -99,7 +99,7 @@ mgu_text_dep = declare_dependency(link_with : mgu_text, include_directories : in
 mgu_sr = library(
   'mgu-sr-gl',
   'src/sr.c',
-  dependencies : [ glesv2, mgu_gl_dep, mgu_text_dep, ds_matrix_dep, ds_vec_dep ],
+  dependencies : [ glesv2, mgu_gl_dep, mgu_text_dep, ds_matrix_dep, ds_vec_dep, pu_main_dep ],
   include_directories : incdir
 )
 mgu_sr_dep = declare_dependency(link_with : mgu_sr, include_directories : incdir)

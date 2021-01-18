@@ -105,7 +105,7 @@ struct sr {
 
 	struct mgu_text text;
 };
-struct sr *sr_create_opengl() {
+struct sr *sr_create_opengl(struct platform *plat) {
 	struct sr *sr = malloc(sizeof(struct sr));
 	// asrt(sr, "");
 
@@ -117,7 +117,7 @@ struct sr *sr_create_opengl() {
 
 	glGenBuffers(1, &sr->vertex_buffer);
 
-	mgu_text_init(&sr->text);
+	mgu_text_init(&sr->text, plat);
 
 	return sr;
 }
