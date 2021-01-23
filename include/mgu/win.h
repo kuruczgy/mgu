@@ -27,6 +27,13 @@ struct mgu_render_cb {
 	bool (*f)(void *env, struct mgu_win_surf *surf, float t);
 };
 
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+struct mgu_touch_point {
+	int32_t id;
+	struct mgu_win_surf *surf;
+};
+#endif
+
 struct mgu_seat {
 	struct mgu_seat_cb cb;
 	double pointer_p[2];
@@ -38,10 +45,6 @@ struct mgu_seat {
 	struct wl_keyboard *keyboard;
 	struct wl_touch *touch;
 
-	struct mgu_touch_point {
-		int32_t id;
-		struct mgu_win_surf *surf;
-	};
 	struct vec touch_points; // vec<struct mgu_touch_point>
 	struct mgu_win_surf *pointer_surf, *keyboard_surf;
 

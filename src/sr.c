@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include <ds/vec.h>
 #include <ds/matrix.h>
 #include <mgu/gl.h>
@@ -40,8 +41,7 @@ struct vertex {
 _Static_assert(sizeof(struct vertex) == 7 * sizeof(float), "");
 struct text {
 	GLuint tex;
-	float p[4];
-	int tex_size[2];
+	float tex_rect[4];
 	float color[4];
 };
 
@@ -103,7 +103,7 @@ struct sr {
 	GLuint prog_color, prog_tex;
 	GLuint vertex_buffer;
 
-	struct mgu_text text;
+	struct mgu_text *text;
 };
 struct sr *sr_create_opengl(struct platform *plat) {
 	struct sr *sr = malloc(sizeof(struct sr));
@@ -117,7 +117,7 @@ struct sr *sr_create_opengl(struct platform *plat) {
 
 	glGenBuffers(1, &sr->vertex_buffer);
 
-	mgu_text_init(&sr->text, plat);
+	sr->text = mgu_text_create(plat);
 
 	return sr;
 }
@@ -130,22 +130,25 @@ void sr_destroy(struct sr *sr) {
 	glDeleteProgram(sr->prog_color);
 	glDeleteProgram(sr->prog_tex);
 
-	mgu_text_finish(&sr->text);
+	mgu_text_destroy(sr->text);
 
 	free(sr);
 }
 
 static void sr_put_text(struct sr *sr, struct sr_spec spec) {
 	struct text t;
-	memcpy(t.p, spec.p, sizeof(float) * 4);
 	struct mgu_text_opts opts = {
 		.str = spec.text.s,
 		.s = { (int)spec.p[2], (int)spec.p[3] },
-		.ch = spec.text.o & SR_CENTER_H,
-		.cv = spec.text.o & SR_CENTER_V,
+		.align_center = spec.text.o & SR_CENTER_H,
 		.size_px = spec.text.px,
 	};
-	t.tex = mgu_tex_text(&sr->text, opts, t.tex_size);
+	int s[2];
+	t.tex = mgu_tex_text(sr->text, opts, s);
+	t.tex_rect[0] = floorf(spec.p[0] + (spec.text.o & SR_CENTER_H ? spec.p[2] / 2 - s[0] / 2.f : 0));
+	t.tex_rect[1] = floorf(spec.p[1] + (spec.text.o & SR_CENTER_V ? spec.p[3] / 2 - s[1] / 2.f : 0));
+	t.tex_rect[2] = s[0];
+	t.tex_rect[3] = s[1];
 	argb_color(t.color, spec.argb);
 	vec_append(&sr->texts, &t);
 }
@@ -153,12 +156,11 @@ void sr_measure_text(struct sr *sr, float p[static 2], struct sr_spec spec) {
 	struct mgu_text_opts opts = {
 		.str = spec.text.s,
 		.s = { (int)spec.p[2], (int)spec.p[3] },
-		.ch = spec.text.o & SR_CENTER_H,
-		.cv = spec.text.o & SR_CENTER_V,
+		.align_center = spec.text.o & SR_CENTER_H,
 		.size_px = spec.text.px,
 	};
 	int s[2];
-	mgu_text_measure(&sr->text, opts, s);
+	mgu_text_measure(sr->text, opts, s);
 	p[0] = s[0], p[1] = s[1];
 }
 void sr_put(struct sr *sr, struct sr_spec spec) {
@@ -221,8 +223,8 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 		struct text *t = vec_get(&sr->texts, i);
 
 		mat3_ident(M);
-		mat3_scale(M, (float[]){ t->tex_size[0], t->tex_size[1] });
-		mat3_tran(M, (float[]){ t->p[0], t->p[1] });
+		mat3_scale(M, (float[]){ t->tex_rect[2], t->tex_rect[3] });
+		mat3_tran(M, (float[]){ t->tex_rect[0], t->tex_rect[1] });
 		mat3_mul_l(M, mat);
 		set_mat(sr->prog_tex, M);
 

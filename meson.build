@@ -61,6 +61,7 @@ libtouch = libtouch_proj.get_variable('libtouch_dep')
 ds_proj = subproject('ds')
 ds_matrix_dep = ds_proj.get_variable('ds_matrix_dep')
 ds_vec_dep = ds_proj.get_variable('ds_vec_dep')
+ds_iter_dep = ds_proj.get_variable('ds_iter_dep')
 
 incdir = include_directories('include')
 
@@ -91,7 +92,7 @@ mgu_win_dep = declare_dependency(
 mgu_text = library(
   'mgu-text',
   'src/text.c',
-  dependencies : [ mgu_gl_dep, pu_main_dep, deps_text ],
+  dependencies : [ mgu_gl_dep, pu_main_dep, ds_vec_dep, ds_iter_dep, deps_text ],
   include_directories : incdir
 )
 mgu_text_dep = declare_dependency(link_with : mgu_text, include_directories : incdir)

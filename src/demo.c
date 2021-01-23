@@ -56,7 +56,7 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 		0xFF3498DB,
 		0xFF9B59B6,
 		0xFFF1C40F,
-		0xFFFFFFFF,
+		0xFF000000,
 	};
 	float rect_s = 100;
 	for (int i = 0; i < 4; ++i) {
@@ -82,20 +82,20 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	}
 
 	char str_buf[16];
-	snprintf(str_buf, 16, "%dx%d", surf->size[0], surf->size[1]);
+	snprintf(str_buf, 16, "%d x %d", surf->size[0], surf->size[1]);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
 		.p = { 0, 0, surf->size[0], surf->size[1] },
-		.argb = 0xFF000000,
+		.argb = 0xFF00FFFF,
 		.text = { .s = str_buf, .px = 100, .o = SR_CENTER }
 	});
 
-	snprintf(str_buf, 16, "pos_x=%dpx", off);
+	snprintf(str_buf, 16, "pos_x = %dpx", off);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
-		.p = { off, surf->size[1] / 4, -1, -1 },
-		.argb = 0xFFFF0000,
-		.text = { .s = str_buf, .px = 30 }
+		.p = { off, 0, 300, surf->size[1] / 4 },
+		.argb = 0xFFFF00FF,
+		.text = { .s = str_buf, .px = 30, .o = SR_CENTER }
 	});
 
 	sr_present(app->sr, proj);
@@ -107,10 +107,9 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 
 	// double ppmm = app->disp.out.ppmm, ss = ppmm / scale;
 
-	mat3_scale(T, (float[]){
-		app->tex_size[0] / (float)scale,
-		app->tex_size[1] / (float)scale
-	});
+	mat3_scale(T, (float[]){ app->tex_size[0], app->tex_size[1] });
+	mat3_tran(T, (float[]){ surf->size[0] - app->tex_size[0],
+		surf->size[1] - app->tex_size[1] });
 
 	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
 	// float rt_scale = libtouch_rt_scaling(&rt);
@@ -255,13 +254,13 @@ void platform_main(struct platform *plat)
 	app.uni_tran = glGetUniformLocation(app.program, "mat");
 	app.uni_tex = glGetUniformLocation(app.program, "texture");
 
-	struct mgu_text mgu_text;
-	mgu_text_init(&mgu_text, plat);
-	app.tex = mgu_tex_text(&mgu_text, (struct mgu_text_opts){
-		.str = "asdfg",
+	struct mgu_text *mgu_text = mgu_text_create(plat);
+	app.tex = mgu_tex_text(mgu_text, (struct mgu_text_opts){
+		.str = "line one\nline two\nline three",
 		.s = { -1, -1 },
 		.size_px = 30,
 	}, app.tex_size);
+	mgu_text_destroy(mgu_text);
 
 	app.sr = sr_create_opengl(plat);
 
@@ -276,6 +275,5 @@ void platform_main(struct platform *plat)
 cleanup_disp:
 	mgu_disp_finish(&app.disp);
 cleanup_none:
-	;
-	// return res;
+	(void)res;
 }
