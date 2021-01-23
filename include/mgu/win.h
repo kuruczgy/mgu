@@ -6,6 +6,8 @@
 #include <EGL/egl.h>
 #include <platform_utils/event_loop.h>
 
+// #define DEBUG_FRAME_RATE
+
 #if defined(__EMSCRIPTEN__)
 #elif defined(__ANDROID__)
 #else
@@ -24,7 +26,7 @@ struct mgu_seat_cb {
 };
 struct mgu_render_cb {
 	void *env;
-	bool (*f)(void *env, struct mgu_win_surf *surf, float t);
+	bool (*f)(void *env, struct mgu_win_surf *surf, uint64_t msec);
 };
 
 #if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
@@ -105,9 +107,11 @@ struct mgu_win_surf {
 	EGLSurface egl_surf;
 	bool egl_inited;
 
+#ifdef DEBUG_FRAME_RATE
 	float frame_rate;
 	long long int frame_counter_since;
 	int frame_counter_n;
+#endif
 
 	struct mgu_disp *disp;
 	uint32_t size[2];

@@ -51,20 +51,22 @@ static void redraw_common(struct mgu_win_surf *surf) {
 
 	struct timespec tp;
 	clock_gettime(CLOCK_MONOTONIC, &tp);
-	float t = tp.tv_sec + tp.tv_nsec * 1e-9f;
+	uint64_t msec = tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
 
 	if (surf->disp->render_cb.f
 		&& surf->disp->render_cb.f(
-			surf->disp->render_cb.env, surf, t)
+			surf->disp->render_cb.env, surf, msec)
 		) {
 		eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
 
+#if DEBUG_FRAME_RATE
 		if (tp.tv_sec > surf->frame_counter_since) {
 			surf->frame_counter_since = tp.tv_sec;
 			pu_log_info("surf %p FPS: %d\n", surf, surf->frame_counter_n);
 			surf->frame_counter_n = 0;
 		}
 		++surf->frame_counter_n;
+#endif
 	}
 }
 static int disp_init_egl(struct mgu_disp *disp)

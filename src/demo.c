@@ -24,13 +24,11 @@ struct app {
 	struct libtouch_area *touch_area;
 };
 
-bool render(void *env, struct mgu_win_surf *surf, float t)
+bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 {
 	struct app *app = env;
 
-	struct mgu_out *out = mgu_disp_get_default_output(&app->disp);
-	int32_t scale = out->scale;
-	glViewport(0, 0, surf->size[0] * scale, surf->size[1] * scale);
+	glViewport(0, 0, surf->size[0], surf->size[1]);
 
 	/* set blending */
 	glEnable(GL_BLEND);
@@ -43,8 +41,7 @@ bool render(void *env, struct mgu_win_surf *surf, float t)
 	mat3_ident(proj);
 	mat3_proj(proj, (int[]){ surf->size[0], surf->size[1] });
 
-	t /= 4.0f;
-	int off = (t - (int)t) * 100;
+	int off = (msec % 5000) / 10;
 
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
