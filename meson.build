@@ -62,6 +62,7 @@ ds_proj = subproject('ds')
 ds_matrix_dep = ds_proj.get_variable('ds_matrix_dep')
 ds_vec_dep = ds_proj.get_variable('ds_vec_dep')
 ds_iter_dep = ds_proj.get_variable('ds_iter_dep')
+ds_hashmap_dep = ds_proj.get_variable('ds_hashmap_dep')
 
 incdir = include_directories('include')
 
@@ -125,6 +126,7 @@ mgu_demo = library(
     mgu_win_dep,
     glesv2,
     ds_matrix_dep,
+    ds_hashmap_dep,
     pu_event_loop_dep,
     pu_main_dep,
     pu_log_dep,

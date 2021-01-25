@@ -1,8 +1,10 @@
 #include <math.h>
-#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <libtouch.h>
 #include <ds/matrix.h>
+#include <ds/hashmap.h>
 #include <mgu/gl.h>
 #include <mgu/sr.h>
 #include <mgu/text.h>
@@ -10,6 +12,11 @@
 #include <platform_utils/main.h>
 #include <platform_utils/event_loop.h>
 #include <platform_utils/log.h>
+
+struct tp {
+	uint32_t id;
+	double p[2];
+};
 
 struct app {
 	struct mgu_disp disp;
@@ -22,6 +29,8 @@ struct app {
 
 	struct libtouch_surface *touch;
 	struct libtouch_area *touch_area;
+
+	struct hashmap tps; /* hashmap<struct tp *> */
 };
 
 bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
@@ -66,8 +75,8 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 		});
 	}
 
+	float line_w = 1;
 	for (int i = 0; i < 2; ++i) {
-		float line_w = 1;
 		struct sr_spec spec = {
 			.t = SR_RECT,
 			.p = { 0, 0, line_w, line_w },
@@ -76,6 +85,27 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 		spec.p[i] = surf->size[i] / 2.0f;
 		spec.p[(i+1)%2+2] = surf->size[(i+1)%2];
 		sr_put(app->sr, spec);
+	}
+
+	struct hashmap_iter iter = hashmap_iter(&app->tps);
+	struct tp **tp_i_p;
+	while (hashmap_iter_next(&iter, (void**)&tp_i_p)) {
+		struct tp *tp_i = *tp_i_p;
+		for (int i = 0; i < 2; ++i) {
+			struct sr_spec spec = {
+				.t = SR_RECT,
+				.p = { 0, 0, line_w, line_w },
+				.argb = 0xFFFF0000
+			};
+			spec.p[i] = tp_i->p[i];
+			spec.p[(i+1)%2+2] = surf->size[(i+1)%2];
+			sr_put(app->sr, spec);
+		}
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { tp_i->p[0] - 50, tp_i->p[1] - 50, 100, 100 },
+			.argb = 0xFFFF0000
+		});
 	}
 
 	char str_buf[16];
@@ -194,16 +224,34 @@ void seat_cb(void *cl, struct mgu_win_surf *surf,
 		if (ev.t & MGU_DOWN) {
 			libtouch_surface_down(app->touch, ev.time, ev.touch.id,
 				(float[]){ p[0], p[1] });
+
+			struct tp *tp = malloc(sizeof(struct tp));
+			*tp = (struct tp){ .id = ev.touch.id,
+				.p = { p[0], p[1] } };
+			hashmap_put_u32(&app->tps, &tp->id, &tp);
 		} else if (ev.t & MGU_MOVE) {
 			libtouch_surface_motion(app->touch, ev.time, ev.touch.id,
 				(float[]){ p[0], p[1] });
+
+			struct tp **tp;
+			if (hashmap_get_u32(&app->tps, &ev.touch.id, (void**)&tp)
+					== MAP_OK) {
+				memcpy((*tp)->p, p, sizeof(double) * 2);
+			}
 		} else if (ev.t & MGU_UP) {
 			libtouch_surface_up(app->touch, ev.time, ev.touch.id);
+
+			struct tp **tp;
+			if (hashmap_get_u32(&app->tps, &ev.touch.id, (void**)&tp)
+					== MAP_OK) {
+				free(*tp);
+				hashmap_del_u32(&app->tps, &ev.touch.id);
+			}
 		}
 	}
 	if (ev.t & MGU_KEYBOARD) {
 		if (ev.t & MGU_DOWN) {
-			printf("key down: %u\n", ev.keyboard.down.key);
+			pu_log_info("key down: %u\n", ev.keyboard.down.key);
 		}
 	}
 }
@@ -261,6 +309,8 @@ void platform_main(struct platform *plat)
 
 	app.sr = sr_create_opengl(plat);
 
+	hashmap_init(&app.tps, sizeof(struct tp));
+
 	struct event_loop *el = event_loop_create(plat);
 	mgu_disp_add_to_event_loop(&app.disp, el);
 	event_loop_run(el);
@@ -268,6 +318,7 @@ void platform_main(struct platform *plat)
 
 	res = 0;
 
+	hashmap_finish(&app.tps);
 	sr_destroy(app.sr);
 cleanup_disp:
 	mgu_disp_finish(&app.disp);

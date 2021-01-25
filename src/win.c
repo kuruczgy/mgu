@@ -15,10 +15,54 @@
 // nothing
 #else
 #include <EGL/eglext.h>
-#include <linux/input-event-codes.h>
 #include <wayland-egl.h>
 #include <sys/mman.h>
 #include <poll.h>
+#endif
+
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+// copied straight from linux/input-event-codes.h
+
+#define KEY_1			2
+#define KEY_2			3
+#define KEY_3			4
+#define KEY_4			5
+#define KEY_5			6
+#define KEY_6			7
+#define KEY_7			8
+#define KEY_8			9
+#define KEY_9			10
+#define KEY_0			11
+
+#define KEY_Q			16
+#define KEY_W			17
+#define KEY_E			18
+#define KEY_R			19
+#define KEY_T			20
+#define KEY_Y			21
+#define KEY_U			22
+#define KEY_I			23
+#define KEY_O			24
+#define KEY_P			25
+#define KEY_A			30
+#define KEY_S			31
+#define KEY_D			32
+#define KEY_F			33
+#define KEY_G			34
+#define KEY_H			35
+#define KEY_J			36
+#define KEY_K			37
+#define KEY_L			38
+#define KEY_Z			44
+#define KEY_X			45
+#define KEY_C			46
+#define KEY_V			47
+#define KEY_B			48
+#define KEY_N			49
+#define KEY_M			50
+
+#else
+#include <linux/input-event-codes.h>
 #endif
 
 #if defined(__EMSCRIPTEN__)
@@ -233,44 +277,6 @@ static EM_BOOL redraw_cb(double t, void *env)
 	return EM_TRUE;
 }
 
-#define KEY_1			2
-#define KEY_2			3
-#define KEY_3			4
-#define KEY_4			5
-#define KEY_5			6
-#define KEY_6			7
-#define KEY_7			8
-#define KEY_8			9
-#define KEY_9			10
-#define KEY_0			11
-
-#define KEY_Q			16
-#define KEY_W			17
-#define KEY_E			18
-#define KEY_R			19
-#define KEY_T			20
-#define KEY_Y			21
-#define KEY_U			22
-#define KEY_I			23
-#define KEY_O			24
-#define KEY_P			25
-#define KEY_A			30
-#define KEY_S			31
-#define KEY_D			32
-#define KEY_F			33
-#define KEY_G			34
-#define KEY_H			35
-#define KEY_J			36
-#define KEY_K			37
-#define KEY_L			38
-#define KEY_Z			44
-#define KEY_X			45
-#define KEY_C			46
-#define KEY_V			47
-#define KEY_B			48
-#define KEY_N			49
-#define KEY_M			50
-
 struct { uint32_t code; const char *key; } key_lut[] = {
 	{ KEY_0, "0" },
 	{ KEY_1, "1" },
@@ -387,6 +393,45 @@ struct mgu_win_surf *mgu_disp_add_surf_canvas(struct mgu_disp *disp) {
 	return NULL;
 }
 #elif defined(__ANDROID__)
+/* uint32_t key_lut[] = {
+	[AKEYCODE_1] = KEY_1,
+	[AKEYCODE_2] = KEY_2,
+	[AKEYCODE_3] = KEY_3,
+	[AKEYCODE_4] = KEY_4,
+	[AKEYCODE_5] = KEY_5,
+	[AKEYCODE_6] = KEY_6,
+	[AKEYCODE_7] = KEY_7,
+	[AKEYCODE_8] = KEY_8,
+	[AKEYCODE_9] = KEY_9,
+	[AKEYCODE_0] = KEY_0,
+
+	[AKEYCODE_Q] = KEY_Q,
+	[AKEYCODE_W] = KEY_W,
+	[AKEYCODE_E] = KEY_E,
+	[AKEYCODE_R] = KEY_R,
+	[AKEYCODE_T] = KEY_T,
+	[AKEYCODE_Y] = KEY_Y,
+	[AKEYCODE_U] = KEY_U,
+	[AKEYCODE_I] = KEY_I,
+	[AKEYCODE_O] = KEY_O,
+	[AKEYCODE_P] = KEY_P,
+	[AKEYCODE_A] = KEY_A,
+	[AKEYCODE_S] = KEY_S,
+	[AKEYCODE_D] = KEY_D,
+	[AKEYCODE_F] = KEY_F,
+	[AKEYCODE_G] = KEY_G,
+	[AKEYCODE_H] = KEY_H,
+	[AKEYCODE_J] = KEY_J,
+	[AKEYCODE_K] = KEY_K,
+	[AKEYCODE_L] = KEY_L,
+	[AKEYCODE_Z] = KEY_Z,
+	[AKEYCODE_X] = KEY_X,
+	[AKEYCODE_C] = KEY_C,
+	[AKEYCODE_V] = KEY_V,
+	[AKEYCODE_B] = KEY_B,
+	[AKEYCODE_N] = KEY_N,
+	[AKEYCODE_M] = KEY_M,
+}; */
 static void redraw(struct mgu_win_surf *surf) {
 	redraw_common(surf);
 }
@@ -399,6 +444,91 @@ static void idle_fn(void *env) {
 		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
 
 	redraw(surf);
+}
+static void input_event(struct mgu_win_surf *surf,
+		struct mgu_input_event_args ev, uint64_t atime) {
+	ev.time = atime / 1000000;
+	struct mgu_seat_cb *cb = &surf->disp->seat.cb;
+	if (cb->f) {
+		cb->f(cb->env, surf, ev);
+	}
+}
+static int32_t engine_handle_input(struct android_app* app,
+		AInputEvent* event) {
+	struct mgu_disp *disp = app->userData;
+
+	// we dont support multiple surfaces
+	if (disp->surfaces.len == 0) return 0;
+	struct mgu_win_surf *surf =
+		*(struct mgu_win_surf **)vec_get(&disp->surfaces, 0);
+
+	int32_t asource = AInputEvent_getSource(event);
+	int32_t aclass = asource & AINPUT_SOURCE_CLASS_MASK;
+
+	switch (AInputEvent_getType(event)) {
+	// TODO: this is untestable, because ANativeActivity_showSoftInput does
+	// not seem to work
+	/* case AINPUT_EVENT_TYPE_KEY: {
+		int32_t acode = AKeyEvent_getKeyCode(event);
+		int64_t atime = AKeyEvent_getEventTime(event);
+		int32_t action = AKeyEvent_getAction(event);
+		uint32_t code = key_lut[acode];
+		struct mgu_input_event_args ev = { .t = MGU_KEYBOARD };
+		if (action == AKEY_EVENT_ACTION_DOWN) {
+			ev.t |= MGU_DOWN;
+			ev.keyboard.down.key = code;
+		} else {
+			return 0;
+		}
+		if ((acode >= AKEYCODE_0 && acode <= AKEYCODE_9) ||
+				(acode >= AKEYCODE_A && acode <= AKEYCODE_Z)) {
+			input_event(surf, ev, atime);
+			return 1;
+		}
+		break;
+	} */
+	case AINPUT_EVENT_TYPE_MOTION: {
+		if (aclass != AINPUT_SOURCE_CLASS_POINTER) break;
+		int64_t atime = AMotionEvent_getEventTime(event);
+		int32_t action = AMotionEvent_getAction(event);
+		int32_t index =
+			(action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+			>> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+		action = action & AMOTION_EVENT_ACTION_MASK;
+		size_t count = AMotionEvent_getPointerCount(event);
+		pu_log_info("input action: %d, count: %d, index: %d\n", action, count, index);
+		for (size_t i = 0; i < count; ++i) {
+			int32_t id = AMotionEvent_getPointerId(event, i);
+			float x = AMotionEvent_getX(event, i);
+			float y = AMotionEvent_getY(event, i);
+			struct mgu_input_event_args ev = {
+				.t = MGU_TOUCH,
+				.touch.id = id,
+				.touch.down_or_move.p = { x, y },
+			};
+			if (i != index) goto wtf_android;
+			switch (action) {
+			case AMOTION_EVENT_ACTION_DOWN:
+			case AMOTION_EVENT_ACTION_POINTER_DOWN:
+				ev.t |= MGU_DOWN;
+				input_event(surf, ev, atime);
+				break;
+			case AMOTION_EVENT_ACTION_UP:
+			case AMOTION_EVENT_ACTION_POINTER_UP:
+				ev.t |= MGU_UP;
+				input_event(surf, ev, atime);
+				break;
+			case AMOTION_EVENT_ACTION_MOVE:
+wtf_android:
+				ev.t |= MGU_MOVE;
+				input_event(surf, ev, atime);
+				break;
+			}
+		}
+		return 1;
+	}
+	}
+	return 0;
 }
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 	struct mgu_disp *disp = app->userData;
@@ -1315,6 +1445,7 @@ void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el) {
 #elif defined(__ANDROID__)
 	disp->plat->app->userData = disp;
 	disp->plat->app->onAppCmd = engine_handle_cmd;
+	disp->plat->app->onInputEvent = engine_handle_input;
 #else
 	event_loop_add_fd(el, wl_display_get_fd(disp->disp),
 		POLLIN, disp, disp_dispatch);
