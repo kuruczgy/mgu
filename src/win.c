@@ -13,7 +13,7 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #elif defined(__ANDROID__)
-// nothing
+#include "jni_helper.h"
 #else
 #include <EGL/eglext.h>
 #include <wayland-egl.h>
@@ -21,6 +21,49 @@
 #include <poll.h>
 #endif
 
+#if defined(__ANDROID__)
+static void fill_display_metrics(struct mgu_disp *disp) {
+	JavaVM *vm = disp->plat->app->activity->vm;
+	JNIEnv *env;
+	(*vm)->AttachCurrentThread(vm, &env, NULL);
+
+	jni_find_class(NativeActivity, "android/app/NativeActivity");
+	jni_find_class(WindowManager, "android/view/WindowManager");
+	jni_find_class(Display, "android/view/Display");
+	jni_find_class(DisplayMetrics, "android/util/DisplayMetrics");
+	jni_find_method(NativeActivity, getWindowManager, "()Landroid/view/WindowManager;");
+	jni_find_method(WindowManager, getDefaultDisplay, "()Landroid/view/Display;");
+	jni_find_method(Display, getMetrics, "(Landroid/util/DisplayMetrics;)V");
+	jni_find_ctor(DisplayMetrics, "()V");
+	jni_find_field(DisplayMetrics, xdpi, "F");
+	// jni_find_field(DisplayMetrics, ydpi, "F");
+
+	jobject obj_wm = (*env)->CallObjectMethod(env,
+		disp->plat->app->activity->clazz, mid_getWindowManager);
+	jni_check;
+
+	jobject obj_display = (*env)->CallObjectMethod(env, obj_wm, mid_getDefaultDisplay);
+	jni_check;
+
+	jobject obj_metrics = (*env)->NewObject(env, class_DisplayMetrics, ctor_DisplayMetrics);
+	jni_check;
+
+	(*env)->CallVoidMethod(env, obj_display, mid_getMetrics, obj_metrics);
+	jni_check;
+
+	float xdpi = (*env)->GetFloatField(env, obj_metrics, fid_xdpi);
+	jni_check;
+
+	// float ydpi = (*env)->GetFloatField(env, obj_metrics, fid_ydpi);
+	// jni_check;
+
+	const static float mm_per_inch = 25.4;
+	disp->out.ppmm = xdpi / mm_per_inch;
+
+jni_error:
+	;
+}
+#endif
 
 #if defined(__EMSCRIPTEN__)
 EM_JS(double, mgu_win_internal_init_resize_listener, (), {
@@ -1248,6 +1291,7 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 
 	double devicePixelRatio = mgu_win_internal_init_resize_listener();
 	disp->out.devicePixelRatio = devicePixelRatio;
+	disp->out.ppmm *= devicePixelRatio;
 	fprintf(stderr, "%s devicePixelRatio: %f\n", __func__, devicePixelRatio);
 
 	res = 0;
@@ -1256,6 +1300,9 @@ cleanup_disp:
 cleanup_none:
 	return res;
 #elif defined(__ANDROID__)
+	fill_display_metrics(disp);
+	pu_log_info("%s ppmm: %f\n", __func__, disp->out.ppmm);
+
 	if (disp_init_egl(disp) != 0) {
 		res = -1;
 		goto cleanup_disp;
