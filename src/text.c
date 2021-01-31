@@ -296,6 +296,8 @@ void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts,
 	s[0] = si[0], s[1] = si[1];
 #elif defined(__ANDROID__)
 	// TODO
+	s[0] = opts.size_px;
+	s[1] = 100;
 #else
 	PangoLayout *lay = create_pango_layout(text, opts);
 	int w, h;

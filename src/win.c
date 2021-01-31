@@ -21,6 +21,35 @@
 #include <poll.h>
 #endif
 
+// https://stackoverflow.com/a/49236965
+#define CASE_STR(value) case value: return #value;
+const char* eglGetErrorString(EGLint error)
+{
+	switch(error)
+	{
+	CASE_STR(EGL_SUCCESS)
+	CASE_STR(EGL_NOT_INITIALIZED)
+	CASE_STR(EGL_BAD_ACCESS)
+	CASE_STR(EGL_BAD_ALLOC)
+	CASE_STR(EGL_BAD_ATTRIBUTE)
+	CASE_STR(EGL_BAD_CONTEXT)
+	CASE_STR(EGL_BAD_CONFIG)
+	CASE_STR(EGL_BAD_CURRENT_SURFACE)
+	CASE_STR(EGL_BAD_DISPLAY)
+	CASE_STR(EGL_BAD_SURFACE)
+	CASE_STR(EGL_BAD_MATCH)
+	CASE_STR(EGL_BAD_PARAMETER)
+	CASE_STR(EGL_BAD_NATIVE_PIXMAP)
+	CASE_STR(EGL_BAD_NATIVE_WINDOW)
+	CASE_STR(EGL_CONTEXT_LOST)
+	default: return "Unknown";
+	}
+}
+#undef CASE_STR
+
+#define trace_egl_error() pu_log_trace("EGL error: %s\n", \
+	eglGetErrorString(eglGetError()))
+
 #if defined(__ANDROID__)
 static void fill_display_metrics(struct mgu_disp *disp) {
 	JavaVM *vm = disp->plat->app->activity->vm;
@@ -85,7 +114,8 @@ static void redraw_common(struct mgu_win_surf *surf) {
 	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
 		surf->egl_surf, surf->disp->egl_ctx);
 	if (ret != EGL_TRUE) {
-		return; // TODO: error
+		trace_egl_error();
+		return;
 	}
 
 	EGLint w, h;
@@ -101,7 +131,10 @@ static void redraw_common(struct mgu_win_surf *surf) {
 		&& surf->disp->render_cb.f(
 			surf->disp->render_cb.env, surf, msec)
 		) {
-		eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
+		ret = eglSwapBuffers(surf->disp->egl_dpy, surf->egl_surf);
+		if (ret != EGL_TRUE) {
+			trace_egl_error();
+		}
 
 #if DEBUG_FRAME_RATE
 		if (tp.tv_sec > surf->frame_counter_since) {
@@ -113,9 +146,50 @@ static void redraw_common(struct mgu_win_surf *surf) {
 #endif
 	}
 }
-static int disp_init_egl(struct mgu_disp *disp)
+
+static bool disp_init_egl_ctx(struct mgu_disp *disp) {
+	if (disp->have_egl_ctx) return true;
+
+	static const EGLint context_attribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE
+	};
+
+	disp->egl_ctx = eglCreateContext(disp->egl_dpy, disp->egl_conf,
+		EGL_NO_CONTEXT, context_attribs);
+	if (!disp->egl_ctx) {
+		return false;
+	}
+
+	// this needs surfaceless context!
+	EGLBoolean ret = eglMakeCurrent(disp->egl_dpy, EGL_NO_SURFACE,
+		EGL_NO_SURFACE, disp->egl_ctx);
+	if (ret != EGL_TRUE) {
+		trace_egl_error();
+		return false;
+	}
+
+	disp->have_egl_ctx = true;
+	if (disp->context_cb.f) {
+		disp->context_cb.f(disp->context_cb.env, true);
+	}
+
+	return true;
+}
+static void disp_finish_egl_ctx(struct mgu_disp *disp) {
+	if (!disp->have_egl_ctx) return;
+
+	if (disp->context_cb.f) {
+		disp->context_cb.f(disp->context_cb.env, false);
+	}
+	disp->have_egl_ctx = false;
+
+	eglDestroyContext(disp->egl_dpy, disp->egl_ctx);
+}
+
+static bool disp_init_egl_dpy(struct mgu_disp *disp)
 {
-	int res;
+	bool res;
 	EGLBoolean ret;
 	EGLint n;
 	EGLint attribs[] = {
@@ -127,10 +201,6 @@ static int disp_init_egl(struct mgu_disp *disp)
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_NONE
 	};
-	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE
-	};
 
 #if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	disp->egl_dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -139,40 +209,23 @@ static int disp_init_egl(struct mgu_disp *disp)
 		EGL_PLATFORM_WAYLAND_KHR, disp->disp, NULL);
 #endif
 	if (!disp->egl_dpy) {
-		res = -1;
+		res = false;
 		goto return_res;
 	}
 
 	ret = eglInitialize(disp->egl_dpy, NULL, NULL);
 	if (ret != EGL_TRUE) {
-		res = -1;
+		res = false;
 		goto cleanup_dpy;
 	}
 
 	ret = eglChooseConfig(disp->egl_dpy, attribs, &disp->egl_conf, 1, &n);
 	if (ret != EGL_TRUE || n <= 0) {
-		res = -1;
+		res = false;
 		goto cleanup_dpy;
 	}
 
-	disp->egl_ctx = eglCreateContext(disp->egl_dpy, disp->egl_conf,
-		EGL_NO_CONTEXT, context_attribs);
-	if (!disp->egl_ctx) {
-		res = -1;
-		goto cleanup_dpy;
-	}
-
-#if defined(__ANDROID__)
-	ret = eglMakeCurrent(disp->egl_dpy, EGL_NO_SURFACE,
-		EGL_NO_SURFACE, disp->egl_ctx);
-	if (ret != EGL_TRUE) {
-		pu_log_info("%s failed surfaceless context\n", __func__);
-		res = -1;
-		goto cleanup_dpy;
-	}
-#endif
-
-	res = 0;
+	res = true;
 	goto return_res;
 cleanup_dpy:
 	eglTerminate(disp->egl_dpy);
@@ -180,9 +233,15 @@ cleanup_dpy:
 return_res:
 	return res;
 }
+static void disp_finish_egl_dpy(struct mgu_disp *disp) {
+	eglTerminate(disp->egl_dpy);
+	eglReleaseThread();
+}
 
 static int surf_init_egl(struct mgu_win_surf *surf) {
 	assert(!surf->egl_inited);
+
+	if (!disp_init_egl_ctx(surf->disp)) return -1;
 
 	int res;
 #if defined(__EMSCRIPTEN__)
@@ -200,7 +259,8 @@ static int surf_init_egl(struct mgu_win_surf *surf) {
 	surf->egl_surf = eglCreatePlatformWindowSurface(surf->disp->egl_dpy,
 		surf->disp->egl_conf, surf->native, NULL);
 #endif
-	if (!surf->egl_surf) {
+	if (surf->egl_surf == EGL_NO_SURFACE) {
+		trace_egl_error();
 		res = -1;
 		goto cleanup_native;
 	}
@@ -540,8 +600,12 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 	switch (cmd) {
 	case APP_CMD_INIT_WINDOW:
 		if (disp->plat->app->window != NULL) {
+			if (!disp_init_egl_ctx(disp)) {
+				pu_log_info("[android] disp_init_egl_ctx failed!\n");
+			}
 			if (surf_init_egl(surf) != 0) {
 				// error
+				pu_log_info("[android] surf_init_egl failed!\n");
 				break;
 			}
 			mgu_disp_force_redraw(disp);
@@ -550,6 +614,7 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 		break;
 	case APP_CMD_TERM_WINDOW:
 		event_loop_set_idle_func(disp->el, NULL, NULL);
+		disp_finish_egl_ctx(disp);
 		surf_finish_egl(surf);
 		break;
 	default:
@@ -1268,6 +1333,14 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 	disp->plat = plat;
 	disp->surfaces = vec_new_empty(sizeof(struct mgu_win_surf *));
 
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
+	disp->disp = wl_display_connect(NULL);
+	if (!disp->disp) {
+		res = -1; /* wl_display_connect failed */
+		goto cleanup_none;
+	}
+#endif
+
 #if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 	// default fake values
 	struct mgu_out *out = &disp->out;
@@ -1282,57 +1355,31 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 	out->ppmm /= out->scale;
 #endif
 
-#if defined(__EMSCRIPTEN__)
-	if (disp_init_egl(disp) != 0) {
+	if (!disp_init_egl_dpy(disp)) {
 		res = -1;
-		goto cleanup_disp;
+		goto cleanup_none;
 	}
 
-
+#if defined(__EMSCRIPTEN__)
 	double devicePixelRatio = mgu_win_internal_init_resize_listener();
 	disp->out.devicePixelRatio = devicePixelRatio;
 	disp->out.ppmm *= devicePixelRatio;
 	fprintf(stderr, "%s devicePixelRatio: %f\n", __func__, devicePixelRatio);
-
-	res = 0;
-	goto cleanup_none;
-cleanup_disp:
-cleanup_none:
-	return res;
 #elif defined(__ANDROID__)
 	fill_display_metrics(disp);
 	pu_log_info("%s ppmm: %f\n", __func__, disp->out.ppmm);
+#endif
 
-	if (disp_init_egl(disp) != 0) {
-		res = -1;
-		goto cleanup_disp;
-	}
-	res = 0;
-	goto cleanup_none;
-cleanup_disp:
-cleanup_none:
-	return res;
-#else
-	disp->disp = wl_display_connect(NULL);
-	if (!disp->disp) {
-		res = -1; /* wl_display_connect failed */
-		goto cleanup_none;
-	}
-
-	if (disp_init_egl(disp) != 0) {
-		res = -1;
-		goto cleanup_disp;
-	}
-
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	disp->reg = wl_display_get_registry(disp->disp);
 	if (!disp->reg) {
 		res = -1; /* TODO: can this even happen? */
-		goto cleanup_disp;
+		goto cleanup_egl_dpy;
 	}
 
 	res = wl_registry_add_listener(disp->reg, &reg_lis, disp);
 	if (res == -1) {
-		goto cleanup_disp;
+		goto cleanup_egl_dpy;
 	}
 
 	disp->outputs = vec_new_empty(sizeof(struct mgu_out));
@@ -1343,7 +1390,7 @@ cleanup_none:
 	res = wl_display_roundtrip(disp->disp);
 	res = wl_display_roundtrip(disp->disp);
 	if (res == -1) {
-		goto cleanup_disp;
+		goto cleanup_egl_dpy;
 	}
 
 	struct mgu_out *out = mgu_disp_get_default_output(disp);
@@ -1354,16 +1401,21 @@ cleanup_none:
 			&& out
 			&& out->configured)) {
 		res = -1;
-		goto cleanup_disp;
+		goto cleanup_egl_dpy;
 	}
+#endif
 
 	res = 0;
 	goto cleanup_none;
-cleanup_disp:
+#if !defined(__ANDROID__)
+cleanup_egl_dpy:
+	disp_init_egl_dpy(disp);
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
 	wl_display_disconnect(disp->disp);
+#endif
+#endif
 cleanup_none:
 	return res;
-#endif
 }
 
 void mgu_disp_finish(struct mgu_disp *disp)
@@ -1374,6 +1426,10 @@ void mgu_disp_finish(struct mgu_disp *disp)
 		surf_destroy(surf);
 	}
 	vec_free(&disp->surfaces);
+
+	disp_finish_egl_ctx(disp);
+	disp_finish_egl_dpy(disp);
+
 #if defined(__EMSCRIPTEN__)
 	/* TODO */
 #elif defined(__ANDROID__)
@@ -1383,7 +1439,7 @@ void mgu_disp_finish(struct mgu_disp *disp)
 		wl_registry_destroy(disp->reg);
 	}
 
-	/* TODO */
+	wl_display_disconnect(disp->disp);
 #endif
 }
 
@@ -1429,6 +1485,7 @@ static void disp_dispatch(void *env, struct pollfd pfd) {
 
 void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el) {
 	disp->el = el;
+
 #if defined(__EMSCRIPTEN__)
 	// we dont support multiple surfaces yet
 	if (disp->surfaces.len == 0) return;
@@ -1461,5 +1518,14 @@ void mgu_disp_force_redraw(struct mgu_disp *disp) {
 			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
 		mgu_win_surf_mark_dirty(surf_i);
 		redraw(surf_i);
+	}
+}
+
+void mgu_disp_set_context_cb(struct mgu_disp *disp, struct mgu_context_cb cb) {
+	disp->context_cb = cb;
+	if (disp->have_egl_ctx) {
+		if (disp->context_cb.f) {
+			disp->context_cb.f(disp->context_cb.env, true);
+		}
 	}
 }

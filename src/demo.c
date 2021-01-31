@@ -19,6 +19,7 @@ struct tp {
 };
 
 struct app {
+	struct platform *plat;
 	struct mgu_disp disp;
 	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran;
 
@@ -256,13 +257,40 @@ void seat_cb(void *cl, struct mgu_win_surf *surf,
 	}
 }
 
+void context_cb(void *env, bool have_ctx) {
+	struct app *app = env;
+	if (have_ctx) {
+		app->program = mgu_shader_program(mgu_shader_vert_simple,
+			mgu_shader_frag_tex);
+		if (!app->program) {
+			return; // TODO: error
+		}
+		app->attrib_pos = glGetAttribLocation(app->program, "pos");
+		app->attrib_tex = glGetAttribLocation(app->program, "tex");
+		app->uni_tran = glGetUniformLocation(app->program, "mat");
+		app->uni_tex = glGetUniformLocation(app->program, "texture");
+
+		struct mgu_text *mgu_text = mgu_text_create(app->plat);
+		app->tex = mgu_tex_text(mgu_text, (struct mgu_text_opts){
+			.str = "line one\nline two\nline three",
+			.s = { -1, -1 },
+			.size_px = 30,
+		}, app->tex_size);
+		mgu_text_destroy(mgu_text);
+
+		app->sr = sr_create_opengl(app->plat);
+	} else {
+		// TODO
+	}
+}
+
 void platform_main(struct platform *plat)
 {
 	pu_log_info("%s start\n", __func__);
 	int res;
 
-	struct app app;
-	memset(&app, 0, sizeof(struct app));
+	struct app app = { .plat = plat };
+
 	if (mgu_disp_init(&app.disp, plat) != 0) {
 		res = 1;
 		goto cleanup_none;
@@ -282,32 +310,13 @@ void platform_main(struct platform *plat)
 
 	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
 	app.disp.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
+	mgu_disp_set_context_cb(&app.disp, (struct mgu_context_cb){
+		.env = &app, .f = context_cb });
 
 	app.touch = libtouch_surface_create();
 	float area[] = { 0, 0, 10000, 10000 };
 	app.touch_area = libtouch_surface_add_area(app.touch, area,
 		(struct libtouch_area_opts){ .g = LIBTOUCH_TSR });
-
-	app.program = mgu_shader_program(mgu_shader_vert_simple,
-		mgu_shader_frag_tex);
-	if (!app.program) {
-		res = 1;
-		goto cleanup_disp;
-	}
-	app.attrib_pos = glGetAttribLocation(app.program, "pos");
-	app.attrib_tex = glGetAttribLocation(app.program, "tex");
-	app.uni_tran = glGetUniformLocation(app.program, "mat");
-	app.uni_tex = glGetUniformLocation(app.program, "texture");
-
-	struct mgu_text *mgu_text = mgu_text_create(plat);
-	app.tex = mgu_tex_text(mgu_text, (struct mgu_text_opts){
-		.str = "line one\nline two\nline three",
-		.s = { -1, -1 },
-		.size_px = 30,
-	}, app.tex_size);
-	mgu_text_destroy(mgu_text);
-
-	app.sr = sr_create_opengl(plat);
 
 	hashmap_init(&app.tps, sizeof(struct tp));
 
@@ -319,7 +328,6 @@ void platform_main(struct platform *plat)
 	res = 0;
 
 	hashmap_finish(&app.tps);
-	sr_destroy(app.sr);
 cleanup_disp:
 	mgu_disp_finish(&app.disp);
 cleanup_none:

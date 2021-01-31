@@ -6,7 +6,7 @@
 #include <EGL/egl.h>
 #include <platform_utils/event_loop.h>
 
-// #define DEBUG_FRAME_RATE
+#define DEBUG_FRAME_RATE 0
 
 #if defined(__EMSCRIPTEN__)
 #elif defined(__ANDROID__)
@@ -27,6 +27,10 @@ struct mgu_seat_cb {
 struct mgu_render_cb {
 	void *env;
 	bool (*f)(void *env, struct mgu_win_surf *surf, uint64_t msec);
+};
+struct mgu_context_cb {
+	void *env;
+	void (*f)(void *env, bool have_ctx);
 };
 
 #if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
@@ -72,8 +76,10 @@ struct mgu_disp {
 	/* egl stuff */
 	EGLDisplay egl_dpy;
 	EGLConfig egl_conf;
+	bool have_egl_ctx;
 	EGLContext egl_ctx;
 
+	struct mgu_context_cb context_cb;
 	struct mgu_render_cb render_cb;
 	struct vec surfaces; // vec<struct mgu_win_surf *>
 
@@ -107,7 +113,7 @@ struct mgu_win_surf {
 	EGLSurface egl_surf;
 	bool egl_inited;
 
-#ifdef DEBUG_FRAME_RATE
+#if DEBUG_FRAME_RATE
 	float frame_rate;
 	long long int frame_counter_since;
 	int frame_counter_n;
@@ -162,6 +168,7 @@ struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp);
 void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf);
 void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el);
 void mgu_disp_force_redraw(struct mgu_disp *disp);
+void mgu_disp_set_context_cb(struct mgu_disp *disp, struct mgu_context_cb cb);
 #if defined(__EMSCRIPTEN__)
 struct mgu_win_surf *mgu_disp_add_surf_canvas(struct mgu_disp *disp);
 #elif defined(__ANDROID__)
