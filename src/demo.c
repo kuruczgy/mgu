@@ -23,8 +23,9 @@ struct app {
 	struct mgu_disp disp;
 	GLuint program, attrib_pos, attrib_tex, uni_tex, uni_tran;
 
-	GLuint tex;
-	int tex_size[2];
+	struct mgu_text *text;
+
+	struct mgu_texture tex;
 
 	struct sr *sr;
 
@@ -32,11 +33,34 @@ struct app {
 	struct libtouch_area *touch_area;
 
 	struct hashmap tps; /* hashmap<struct tp *> */
+
+	uint32_t prev_size[2];
+	struct mgu_texture text_size;
+	struct mgu_texture text_static;
 };
 
 bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 {
 	struct app *app = env;
+
+	bool size_dirty = false;
+	if (memcmp(app->prev_size, surf->size, sizeof(uint32_t) * 2) != 0) {
+		memcpy(app->prev_size, surf->size, sizeof(uint32_t) * 2);
+		size_dirty = true;
+	}
+
+	if (!app->text_size.tex || size_dirty) {
+		char str_buf[16];
+		snprintf(str_buf, 16, "%d x %d", surf->size[0], surf->size[1]);
+
+		mgu_texture_destroy(&app->text_size);
+		app->text_size = mgu_tex_text(app->text, (struct mgu_text_opts){
+			.str = str_buf,
+			.s = { -1, -1 },
+			.size_px = 100,
+			.align_center = true,
+		});
+	}
 
 	glViewport(0, 0, surf->size[0], surf->size[1]);
 
@@ -109,21 +133,29 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 		});
 	}
 
-	char str_buf[16];
-	snprintf(str_buf, 16, "%d x %d", surf->size[0], surf->size[1]);
 	sr_put(app->sr, (struct sr_spec){
-		.t = SR_TEXT,
+		.t = SR_TEX,
 		.p = { 0, 0, surf->size[0], surf->size[1] },
 		.argb = 0xFF00FFFF,
-		.text = { .s = str_buf, .px = 100, .o = SR_CENTER }
+		.o = SR_CENTER,
+		.tex = app->text_size
 	});
 
-	snprintf(str_buf, 16, "pos_x = %dpx", off);
+	char str_buf[64];
+	snprintf(str_buf, 64, "dynamic @ %dpx", off);
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
 		.p = { off, 0, 300, surf->size[1] / 4 },
 		.argb = 0xFFFF00FF,
-		.text = { .s = str_buf, .px = 30, .o = SR_CENTER }
+		.o = SR_CENTER,
+		.text = { .s = str_buf, .px = 30 }
+	});
+
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_TEX,
+		.p = { off, 0, 300, surf->size[1] / 4 },
+		.argb = 0xFFFFFFFF,
+		.tex = app->text_static,
 	});
 
 	sr_present(app->sr, proj);
@@ -135,9 +167,9 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 
 	// double ppmm = app->disp.out.ppmm, ss = ppmm / scale;
 
-	mat3_scale(T, (float[]){ app->tex_size[0], app->tex_size[1] });
-	mat3_tran(T, (float[]){ surf->size[0] - app->tex_size[0],
-		surf->size[1] - app->tex_size[1] });
+	mat3_scale(T, (float[]){ app->tex.s[0], app->tex.s[1] });
+	mat3_tran(T, (float[]){ surf->size[0] - app->tex.s[0],
+		surf->size[1] - app->tex.s[1] });
 
 	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
 	// float rt_scale = libtouch_rt_scaling(&rt);
@@ -160,7 +192,7 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 	GLuint buf;
 	glGenBuffers(1, &buf);
 	glBindBuffer(GL_ARRAY_BUFFER, buf);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * 8, a_pos, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER,sizeof(GLfloat)*8,a_pos, GL_STATIC_DRAW);
 
 	glVertexAttribPointer(app->attrib_pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
 	glVertexAttribPointer(app->attrib_tex, 2, GL_FLOAT, GL_FALSE, 0, 0);
@@ -169,7 +201,7 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 
 	/* bind texture */
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, app->tex);
+	glBindTexture(GL_TEXTURE_2D, app->tex.tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -270,17 +302,25 @@ void context_cb(void *env, bool have_ctx) {
 		app->uni_tran = glGetUniformLocation(app->program, "mat");
 		app->uni_tex = glGetUniformLocation(app->program, "texture");
 
-		struct mgu_text *mgu_text = mgu_text_create(app->plat);
-		app->tex = mgu_tex_text(mgu_text, (struct mgu_text_opts){
-			.str = "line one\nline two\nline three",
+		app->tex = mgu_tex_text(app->text, (struct mgu_text_opts){
+			.str = "grab\nme\n:-)",
 			.s = { -1, -1 },
+			.align_center = true,
 			.size_px = 30,
-		}, app->tex_size);
-		mgu_text_destroy(mgu_text);
+		});
+
+		app->text_static =
+				mgu_tex_text(app->text, (struct mgu_text_opts){
+			.str = "static text",
+			.s = { -1, -1 },
+			.size_px = 40,
+		});
 
 		app->sr = sr_create_opengl(app->plat);
 	} else {
-		// TODO
+		mgu_texture_destroy(&app->text_static);
+		mgu_texture_destroy(&app->text_size);
+		mgu_texture_destroy(&app->tex);
 	}
 }
 
@@ -308,6 +348,8 @@ void platform_main(struct platform *plat)
 #endif
 	pu_log_info("%s added surfaces\n", __func__);
 
+	app.text = mgu_text_create(app.plat);
+
 	app.disp.seat.cb = (struct mgu_seat_cb){ .env = &app, .f = seat_cb };
 	app.disp.render_cb = (struct mgu_render_cb){ .env = &app, .f = render };
 	mgu_disp_set_context_cb(&app.disp, (struct mgu_context_cb){
@@ -328,6 +370,7 @@ void platform_main(struct platform *plat)
 	res = 0;
 
 	hashmap_finish(&app.tps);
+	mgu_text_destroy(app.text);
 cleanup_disp:
 	mgu_disp_finish(&app.disp);
 cleanup_none:

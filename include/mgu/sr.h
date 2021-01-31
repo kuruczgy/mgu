@@ -1,18 +1,21 @@
 #ifndef MGU_SR_H
 #define MGU_SR_H
 #include <platform_utils/main.h>
+#include <mgu/gl.h>
 
 struct sr;
 
 enum sr_type {
 	SR_RECT,
+	SR_TEX,
 	SR_TEXT,
 	SR_TYPE_N
 };
 
-enum sr_text_opts {
+enum sr_align_opts {
 	SR_CENTER_V = 1 << 0,
 	SR_CENTER_H = 1 << 1,
+	SR_STRETCH = 1 << 2,
 	SR_CENTER = SR_CENTER_V | SR_CENTER_H,
 };
 
@@ -20,11 +23,12 @@ struct sr_spec {
 	enum sr_type t;
 	float p[4];
 	uint32_t argb;
+	enum sr_align_opts o;
 	union {
+		struct mgu_texture tex;
 		struct {
 			const char *s;
 			int px;
-			enum sr_text_opts o;
 		} text;
 	};
 };

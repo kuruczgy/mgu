@@ -5,8 +5,15 @@
 struct mgu_pixel { GLubyte r, g, b, a; };
 _Static_assert(sizeof(struct mgu_pixel) == 4, "");
 
-GLuint mgu_tex_farbfeld(const char *filename);
-GLuint mgu_tex_mem(struct mgu_pixel *data, uint32_t size[static 2]);
+struct mgu_texture {
+	GLuint tex;
+	uint32_t s[2];
+};
+
+struct mgu_texture mgu_tex_farbfeld(const char *filename);
+struct mgu_texture mgu_texture_create_from_mem(struct mgu_pixel *data,
+	uint32_t s[static 2]);
+void mgu_texture_destroy(struct mgu_texture *texture);
 
 /* attribs is termiated using an entry with a NULL name */
 GLuint mgu_shader_program(const GLchar *vert, const GLchar *frag);

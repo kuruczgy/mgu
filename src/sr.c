@@ -39,9 +39,10 @@ struct vertex {
 	float val[4];
 };
 _Static_assert(sizeof(struct vertex) == 7 * sizeof(float), "");
-struct text {
+struct obj_tex {
 	GLuint tex;
-	float tex_rect[4];
+	bool own_tex;
+	float rect[4];
 	float color[4];
 };
 
@@ -98,7 +99,7 @@ static void set_mat(GLuint prog, const float mat[static 9]) {
 
 struct sr {
 	struct vec tris; /* vec<struct vertex> */
-	struct vec texts; /* vec<struct text> */
+	struct vec draw_textures; /* vec<struct obj_tex> */
 
 	GLuint prog_color, prog_tex;
 	GLuint vertex_buffer;
@@ -110,7 +111,7 @@ struct sr *sr_create_opengl(struct platform *plat) {
 	// asrt(sr, "");
 
 	sr->tris = vec_new_empty(sizeof(struct vertex));
-	sr->texts = vec_new_empty(sizeof(struct text));
+	sr->draw_textures = vec_new_empty(sizeof(struct obj_tex));
 
 	sr->prog_color = mgu_shader_program(shader_vert, shader_frag_color);
 	sr->prog_tex = mgu_shader_program(shader_vert, shader_frag_tex);
@@ -123,7 +124,7 @@ struct sr *sr_create_opengl(struct platform *plat) {
 }
 void sr_destroy(struct sr *sr) {
 	vec_free(&sr->tris);
-	vec_free(&sr->texts);
+	vec_free(&sr->draw_textures);
 
 	glDeleteBuffers(1, &sr->vertex_buffer);
 
@@ -135,28 +136,43 @@ void sr_destroy(struct sr *sr) {
 	free(sr);
 }
 
+static void sr_put_tex(struct sr *sr, struct sr_spec spec, bool own_tex) {
+	struct obj_tex ot = {
+		.tex = spec.tex.tex,
+		.own_tex = own_tex,
+	};
+	argb_color(ot.color, spec.argb);
+
+	uint32_t *s = spec.tex.s;
+	ot.rect[0] = floorf(spec.p[0] + (spec.o & SR_CENTER_H ?
+		spec.p[2] / 2 - s[0] / 2.f : 0));
+	ot.rect[1] = floorf(spec.p[1] + (spec.o & SR_CENTER_V ?
+		spec.p[3] / 2 - s[1] / 2.f : 0));
+	if (spec.o & SR_STRETCH) {
+		ot.rect[2] = spec.p[2];
+		ot.rect[3] = spec.p[3];
+	} else {
+		ot.rect[2] = s[0];
+		ot.rect[3] = s[1];
+	}
+	vec_append(&sr->draw_textures, &ot);
+}
+
 static void sr_put_text(struct sr *sr, struct sr_spec spec) {
-	struct text t;
 	struct mgu_text_opts opts = {
 		.str = spec.text.s,
 		.s = { (int)spec.p[2], (int)spec.p[3] },
-		.align_center = spec.text.o & SR_CENTER_H,
+		.align_center = spec.o & SR_CENTER_H,
 		.size_px = spec.text.px,
 	};
-	int s[2];
-	t.tex = mgu_tex_text(sr->text, opts, s);
-	t.tex_rect[0] = floorf(spec.p[0] + (spec.text.o & SR_CENTER_H ? spec.p[2] / 2 - s[0] / 2.f : 0));
-	t.tex_rect[1] = floorf(spec.p[1] + (spec.text.o & SR_CENTER_V ? spec.p[3] / 2 - s[1] / 2.f : 0));
-	t.tex_rect[2] = s[0];
-	t.tex_rect[3] = s[1];
-	argb_color(t.color, spec.argb);
-	vec_append(&sr->texts, &t);
+	spec.tex = mgu_tex_text(sr->text, opts);
+	sr_put_tex(sr, spec, true);
 }
 void sr_measure_text(struct sr *sr, float p[static 2], struct sr_spec spec) {
 	struct mgu_text_opts opts = {
 		.str = spec.text.s,
 		.s = { (int)spec.p[2], (int)spec.p[3] },
-		.align_center = spec.text.o & SR_CENTER_H,
+		.align_center = spec.o & SR_CENTER_H,
 		.size_px = spec.text.px,
 	};
 	int s[2];
@@ -168,6 +184,9 @@ void sr_put(struct sr *sr, struct sr_spec spec) {
 	case SR_RECT:
 		make_quad(&sr->tris, spec.p, spec.argb);
 		break;
+	case SR_TEX:
+		sr_put_tex(sr, spec, false);
+		break;
 	case SR_TEXT:
 		sr_put_text(sr, spec);
 		break;
@@ -178,6 +197,7 @@ void sr_put(struct sr *sr, struct sr_spec spec) {
 void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec) {
 	switch (spec.t) {
 	case SR_RECT:
+	case SR_TEX:
 		memcpy(p, spec.p + 2, sizeof(float) * 2);
 		break;
 	case SR_TEXT:
@@ -219,29 +239,33 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
 	float M[9];
-	for (int i = 0; i < sr->texts.len; ++i) {
-		struct text *t = vec_get(&sr->texts, i);
+	for (int i = 0; i < sr->draw_textures.len; ++i) {
+		struct obj_tex *ot = vec_get(&sr->draw_textures, i);
 
 		mat3_ident(M);
-		mat3_scale(M, (float[]){ t->tex_rect[2], t->tex_rect[3] });
-		mat3_tran(M, (float[]){ t->tex_rect[0], t->tex_rect[1] });
+		mat3_scale(M, (float[]){ ot->rect[2], ot->rect[3] });
+		mat3_tran(M, (float[]){ ot->rect[0], ot->rect[1] });
 		mat3_mul_l(M, mat);
 		set_mat(sr->prog_tex, M);
 
 		glUniform4f(u_tex_color,
-			t->color[0], t->color[1], t->color[2], t->color[3]);
+			ot->color[0], ot->color[1], ot->color[2], ot->color[3]);
 
-		glBindTexture(GL_TEXTURE_2D, t->tex);
+		glBindTexture(GL_TEXTURE_2D, ot->tex);
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
 
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+			GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
+			GL_CLAMP_TO_EDGE);
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		glDeleteTextures(1, &t->tex);
+		if (ot->own_tex) {
+			glDeleteTextures(1, &ot->tex);
+		}
 	}
 
 	vec_clear(&sr->tris);
-	vec_clear(&sr->texts);
+	vec_clear(&sr->draw_textures);
 }

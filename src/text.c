@@ -5,7 +5,7 @@
 #include <platform_utils/main.h>
 #include <platform_utils/log.h>
 
-// #define DEBUG_TEXT_BG
+#define DEBUG_TEXT_BG 0
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -150,7 +150,7 @@ EM_JS(void, mgu_internal_render_text, (
 		ctx.canvas.width = lay.width;
 		ctx.canvas.height = lay.height;
 		ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-#ifdef DEBUG_TEXT_BG
+#if DEBUG_TEXT_BG
 		ctx.fillStyle = "#0000FF7F";
 		ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 #endif
@@ -307,8 +307,8 @@ void mgu_text_measure(const struct mgu_text *text, struct mgu_text_opts opts,
 #endif
 }
 
-GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts,
-		int s[static 2]) {
+struct mgu_texture mgu_tex_text(const struct mgu_text *text,
+		struct mgu_text_opts opts) {
 #if defined(__EMSCRIPTEN__)
 	GLuint tex;
 	glGenTextures(1, &tex);
@@ -322,8 +322,7 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts,
 		opts.size_px,
 		opts.align_center
 	);
-	s[0] = si[0], s[1] = si[1];
-	return tex;
+	return (struct mgu_texture){ .tex = tex, .s = { si[0], si[1] } };
 #elif defined(__ANDROID__)
 	// see:
 	// https://arm-software.github.io/opengl-es-sdk-for-android/high_quality_text.html#highQualityTextIntroduction
@@ -383,8 +382,9 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts,
 	jobject obj_bitmap = (*env)->CallStaticObjectMethod(env, class_Bitmap,
 		mid_createBitmap, bitmap_w, bitmap_h, obj_argb_8888); jni_check;
 
-#ifdef DEBUG_TEXT_BG
-	jint color = 0x7F0000FF;
+#if DEBUG_TEXT_BG
+	float rand_val = rand() / (float)RAND_MAX;
+	jint color = 0x7F000000 | ((uint32_t)(rand_val * 255.0) & 0xFF);
 #else
 	jint color = 0x00000000;
 #endif
@@ -416,18 +416,16 @@ GLuint mgu_tex_text(const struct mgu_text *text, struct mgu_text_opts opts,
 
 	(*env)->PopLocalFrame(env, NULL);
 
-	s[0] = bitmap_w, s[1] = bitmap_h;
-	return tex;
+	return (struct mgu_texture){ .tex = tex, .s = { bitmap_w, bitmap_h } };
 jni_error:
-	return 0;
+	return (struct mgu_texture){ .tex = 0 };
 #else
 	PangoLayout *lay = create_pango_layout(text, opts);
 
 	PangoRectangle logical_rect;
 	pango_layout_get_pixel_extents(lay, NULL, &logical_rect);
 
-	s[0] = logical_rect.width;
-	s[1] = logical_rect.height;
+	uint32_t s[] = { logical_rect.width, logical_rect.height };
 
 	struct mgu_pixel *buf =
 		calloc(s[0] * s[1], sizeof(struct mgu_pixel));
@@ -437,8 +435,9 @@ jni_error:
 
 	cairo_translate(cr, -logical_rect.x, -logical_rect.y);
 
-#ifdef DEBUG_TEXT_BG
-	cairo_set_source_rgba(cr, 1, 0, 0, 0.5);
+#if DEBUG_TEXT_BG
+	float rand_val = rand() / (float)RAND_MAX;
+	cairo_set_source_rgba(cr, rand_val, 0, 0, 0.5);
 	cairo_paint(cr);
 #endif
 	cairo_set_source_rgba(cr, 1, 1, 1, 1);
@@ -448,8 +447,8 @@ jni_error:
 	cairo_destroy(cr);
 	cairo_surface_destroy(surf);
 
-	GLuint tex = mgu_tex_mem((struct mgu_pixel *)buf,
-		(uint32_t[]){ s[0], s[1] });
+	struct mgu_texture tex = mgu_texture_create_from_mem(
+		(struct mgu_pixel *)buf, s);
 	free(buf);
 
 	return tex;
