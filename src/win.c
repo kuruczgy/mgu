@@ -64,8 +64,10 @@ static void fill_display_metrics(struct mgu_disp *disp) {
 	jni_find_method(WindowManager, getDefaultDisplay, "()Landroid/view/Display;");
 	jni_find_method(Display, getMetrics, "(Landroid/util/DisplayMetrics;)V");
 	jni_find_ctor(DisplayMetrics, "()V");
+	jni_find_field(DisplayMetrics, widthPixels, "I");
+	jni_find_field(DisplayMetrics, heightPixels, "I");
 	jni_find_field(DisplayMetrics, xdpi, "F");
-	// jni_find_field(DisplayMetrics, ydpi, "F");
+	jni_find_field(DisplayMetrics, ydpi, "F");
 
 	jobject obj_wm = (*env)->CallObjectMethod(env,
 		disp->plat->app->activity->clazz, mid_getWindowManager);
@@ -80,19 +82,56 @@ static void fill_display_metrics(struct mgu_disp *disp) {
 	(*env)->CallVoidMethod(env, obj_display, mid_getMetrics, obj_metrics);
 	jni_check;
 
+	int width = (*env)->GetIntField(env, obj_metrics, fid_widthPixels);
+	jni_check;
+
+	int height = (*env)->GetIntField(env, obj_metrics, fid_heightPixels);
+	jni_check;
+
 	float xdpi = (*env)->GetFloatField(env, obj_metrics, fid_xdpi);
 	jni_check;
 
-	// float ydpi = (*env)->GetFloatField(env, obj_metrics, fid_ydpi);
-	// jni_check;
+	float ydpi = (*env)->GetFloatField(env, obj_metrics, fid_ydpi);
+	jni_check;
+
+	disp->out.res_px[0] = width;
+	disp->out.res_px[1] = height;
 
 	const static float mm_per_inch = 25.4;
-	disp->out.ppmm = xdpi / mm_per_inch;
-
+	disp->out.size_mm[0] = (width / xdpi) * mm_per_inch;
+	disp->out.size_mm[1] = (height / ydpi) * mm_per_inch;
 jni_error:
 	;
 }
 #endif
+
+static void calculate_display_metrics(struct mgu_out *out) {
+	double p = hypot(out->res_px[0], out->res_px[1]);
+	double mm = hypot(out->size_mm[0], out->size_mm[1]);
+
+	out->ppmm = p / mm;
+	out->ppmm /= out->scale;
+
+	static const double guessed_screen_visual_deg =
+#if defined(__ANDROID__)
+		15.0
+#else
+		22.0
+#endif
+	;
+	out->ppvd = fmax(out->res_px[0], out->res_px[1]) /
+		guessed_screen_visual_deg;
+	out->ppvd /= out->scale;
+
+	pu_log_info("[display metrics] res_px: { %d, %d }, scale: %d, "
+		"size_mm: { %f, %f }, ppmm: %f, ppvd: %f\n",
+		out->res_px[0], out->res_px[1],
+		out->scale,
+		out->size_mm[0], out->size_mm[1],
+		out->ppmm,
+		out->ppvd
+	);
+}
 
 #if defined(__EMSCRIPTEN__)
 EM_JS(double, mgu_win_internal_init_resize_listener, (), {
@@ -906,12 +945,7 @@ static void output_handle_done(void* data, struct wl_output *wl_output) {
 	struct mgu_disp *disp = data;
 	struct mgu_out *out = find_out(disp, wl_output);
 	if (out) {
-		double p = hypot(out->res_px[0], out->res_px[1]);
-		double mm = hypot(out->size_mm[0], out->size_mm[1]);
-		out->ppmm = p / mm;
-		out->ppmm /= out->scale;
-		fprintf(stderr, "ppmm: %f\n", out->ppmm);
-
+		calculate_display_metrics(out);
 		out->configured = true;
 	}
 }
@@ -1349,10 +1383,6 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 		.res_px = { 150, 150 },
 		.scale = 1
 	};
-	double p = hypot(out->res_px[0], out->res_px[1]);
-	double mm = hypot(out->size_mm[0], out->size_mm[1]);
-	out->ppmm = p / mm;
-	out->ppmm /= out->scale;
 #endif
 
 	if (!disp_init_egl_dpy(disp)) {
@@ -1363,11 +1393,14 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 #if defined(__EMSCRIPTEN__)
 	double devicePixelRatio = mgu_win_internal_init_resize_listener();
 	disp->out.devicePixelRatio = devicePixelRatio;
-	disp->out.ppmm *= devicePixelRatio;
-	fprintf(stderr, "%s devicePixelRatio: %f\n", __func__, devicePixelRatio);
+	disp->out.res_px[0] *= devicePixelRatio;
+	disp->out.res_px[1] *= devicePixelRatio;
+	fprintf(stderr, "[emscripten] devicePixelRatio: %f\n",
+		devicePixelRatio);
+	calculate_display_metrics(out);
 #elif defined(__ANDROID__)
 	fill_display_metrics(disp);
-	pu_log_info("%s ppmm: %f\n", __func__, disp->out.ppmm);
+	calculate_display_metrics(out);
 #endif
 
 #if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)

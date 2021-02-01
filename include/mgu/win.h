@@ -59,10 +59,9 @@ struct mgu_seat {
 };
 
 struct mgu_out {
-	int32_t size_mm[2];
+	float size_mm[2];
 	int32_t res_px[2];
 	int32_t scale;
-	double ppmm;
 #if defined(__EMSCRIPTEN__)
 	double devicePixelRatio;
 #elif defined(__ANDROID__)
@@ -70,6 +69,10 @@ struct mgu_out {
 	struct wl_output *out;
 	bool configured;
 #endif
+
+	/* public fields: */
+	double ppmm; /* pixels per millimetre on the screen */
+	double ppvd; /* pixels per user visual angle (degrees) */
 };
 
 struct mgu_disp {
