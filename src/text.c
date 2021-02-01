@@ -332,6 +332,7 @@ struct mgu_texture mgu_tex_text(const struct mgu_text *text,
 	if ((*env)->PushLocalFrame(env, 32) != 0) goto jni_error;
 
 	jni_find_class(Paint, "android/graphics/Paint");
+	jni_find_class(Typeface, "android/graphics/Typeface");
 	jni_find_class(Bitmap, "android/graphics/Bitmap");
 	jni_find_class(Bitmap_Config, "android/graphics/Bitmap$Config");
 	jni_find_class(Canvas, "android/graphics/Canvas");
@@ -342,6 +343,7 @@ struct mgu_texture mgu_tex_text(const struct mgu_text *text,
 
 	jni_find_static_method(GLUtils, texImage2D, "(IIILandroid/graphics/Bitmap;I)V");
 	jni_find_static_method(Bitmap, createBitmap, "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;");
+	jni_find_method(Paint, setTypeface, "(Landroid/graphics/Typeface;)Landroid/graphics/Typeface;");
 	jni_find_method(Paint, setColor, "(I)V");
 	jni_find_method(Paint, setTextSize, "(F)V");
 	jni_find_method(Paint, measureText, "(Ljava/lang/String;)F");
@@ -351,10 +353,15 @@ struct mgu_texture mgu_tex_text(const struct mgu_text *text,
 	jni_find_method(Canvas, drawText, "(Ljava/lang/String;FFLandroid/graphics/Paint;)V");
 
 	jni_find_static_field(Bitmap_Config, ARGB_8888, "Landroid/graphics/Bitmap$Config;");
+	jni_find_static_field(Typeface, MONOSPACE, "Landroid/graphics/Typeface;");
 
 	jobject obj_argb_8888 =
 		(*env)->GetStaticObjectField(env, class_Bitmap_Config, fid_ARGB_8888); jni_check;
+	jobject obj_monospace =
+		(*env)->GetStaticObjectField(env, class_Typeface, fid_MONOSPACE); jni_check;
 	jobject obj_paint = (*env)->NewObject(env, class_Paint, ctor_Paint); jni_check;
+
+	(*env)->CallObjectMethod(env, obj_paint, mid_setTypeface, obj_monospace); jni_check;
 
 	(*env)->CallVoidMethod(env, obj_paint, mid_setColor, (jint)0xFFFFFFFF); jni_check;
 
