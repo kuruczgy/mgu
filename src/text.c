@@ -246,8 +246,6 @@ struct mgu_text *mgu_text_create(struct platform *plat) {
 void mgu_text_destroy(struct mgu_text *text) {
 #if defined(__EMSCRIPTEN__)
 #elif defined(__ANDROID__)
-	JavaVM *vm = text->plat->app->activity->vm;
-	(*vm)->DetachCurrentThread(vm);
 #else
 	cairo_destroy(text->ctx);
 #endif
