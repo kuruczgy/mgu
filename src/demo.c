@@ -158,7 +158,7 @@ bool render(void *env, struct mgu_win_surf *surf, uint64_t msec)
 		.tex = app->text_static,
 	});
 
-	sr_present(app->sr, proj);
+	sr_present(app->sr, surf->size);
 
 	glUseProgram(app->program);
 

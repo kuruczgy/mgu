@@ -52,3 +52,13 @@ finish:
 	glDeleteShader(v), glDeleteShader(f);
 	return p;
 }
+
+void mgu_set_scissor(const float p[static 4],
+		const uint32_t viewport[static 2]) {
+	glScissor(
+		p[0],
+		viewport[1] - p[1] - p[3],
+		p[2],
+		p[3]
+	);
+}

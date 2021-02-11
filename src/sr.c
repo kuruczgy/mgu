@@ -44,6 +44,9 @@ struct obj_tex {
 	bool own_tex;
 	float rect[4];
 	float color[4];
+
+	bool clip;
+	float clip_rect[4];
 };
 
 static void argb_color(float col[static 4], uint32_t c) {
@@ -97,9 +100,12 @@ static void set_mat(GLuint prog, const float mat[static 9]) {
 	glUniformMatrix3fv(u_mat, 1, GL_FALSE, m);
 }
 
+struct float4 { float a[4]; };
+
 struct sr {
 	struct vec tris; /* vec<struct vertex> */
 	struct vec draw_textures; /* vec<struct obj_tex> */
+	struct vec clip_stack; /* vec<struct float4> */
 
 	GLuint prog_color, prog_tex;
 	GLuint vertex_buffer;
@@ -112,6 +118,7 @@ struct sr *sr_create_opengl(struct platform *plat) {
 
 	sr->tris = vec_new_empty(sizeof(struct vertex));
 	sr->draw_textures = vec_new_empty(sizeof(struct obj_tex));
+	sr->clip_stack = vec_new_empty(sizeof(struct float4));
 
 	sr->prog_color = mgu_shader_program(shader_vert, shader_frag_color);
 	sr->prog_tex = mgu_shader_program(shader_vert, shader_frag_tex);
@@ -125,6 +132,7 @@ struct sr *sr_create_opengl(struct platform *plat) {
 void sr_destroy(struct sr *sr) {
 	vec_free(&sr->tris);
 	vec_free(&sr->draw_textures);
+	vec_free(&sr->clip_stack);
 
 	glDeleteBuffers(1, &sr->vertex_buffer);
 
@@ -155,6 +163,18 @@ static void sr_put_tex(struct sr *sr, struct sr_spec spec, bool own_tex) {
 		ot.rect[2] = s[0];
 		ot.rect[3] = s[1];
 	}
+
+	// round to whole pixels (important for text rendering)
+	if (!(spec.o & SR_STRETCH)) {
+		ot.rect[0] = floorf(ot.rect[0] + .5f);
+		ot.rect[1] = floorf(ot.rect[1] + .5f);
+	}
+
+	if (spec.p[2] >= 0 && spec.p[3] >= 0) {
+		ot.clip = true;
+		memcpy(ot.clip_rect, spec.p, sizeof(float) * 4);
+	}
+
 	vec_append(&sr->draw_textures, &ot);
 }
 
@@ -185,7 +205,7 @@ void sr_put(struct sr *sr, struct sr_spec spec) {
 		make_quad(&sr->tris, spec.p, spec.argb);
 		break;
 	case SR_TEX:
-		sr_put_tex(sr, spec, false);
+		sr_put_tex(sr, spec, spec.o & SR_TEX_PASS_OWNERSHIP);
 		break;
 	case SR_TEXT:
 		sr_put_text(sr, spec);
@@ -207,7 +227,41 @@ void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec) {
 		;// asrt(false, "");
 	}
 }
-void sr_present(struct sr *sr, const float mat[static 9]) {
+void sr_clip_push(struct sr *sr, const float aabb[static 4]) {
+	struct float4 box;
+	memcpy(box.a, aabb, sizeof(float) * 4);
+	if (sr->clip_stack.len > 0) {
+		struct float4 *prev_box =
+			vec_get(&sr->clip_stack, sr->clip_stack.len - 1);
+		aabb_intersect(box.a, aabb, prev_box->a);
+	}
+	vec_append(&sr->clip_stack, &box);
+}
+void sr_clip_pop(struct sr *sr) {
+	if (sr->clip_stack.len > 0) {
+		vec_remove(&sr->clip_stack, sr->clip_stack.len - 1);
+	}
+}
+static void set_clip(struct sr *sr, const uint32_t win_size[static 2]) {
+	if (sr->clip_stack.len > 0) {
+		struct float4 *prev_box =
+			vec_get(&sr->clip_stack, sr->clip_stack.len - 1);
+		if (prev_box->a[2] <= 0 || prev_box->a[3] <= 0) {
+			glScissor(0, 0, 0, 0);
+		} else {
+			mgu_set_scissor(prev_box->a, win_size);
+		}
+		glEnable(GL_SCISSOR_TEST);
+	} else {
+		glDisable(GL_SCISSOR_TEST);
+	}
+}
+void sr_present(struct sr *sr, const uint32_t win_size[static 2]) {
+	float mat[9];
+	mat3_ident(mat);
+	mat3_proj(mat, (int[]){ win_size[0], win_size[1] });
+
+	set_clip(sr, win_size);
 
 	/* adjust depth values for all tris */
 	for (int i = 0; i < sr->tris.len; ++i) {
@@ -217,7 +271,8 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 
 	glUseProgram(sr->prog_color);
 	set_mat(sr->prog_color, mat);
-	set_vertices(sr->prog_color, sr->vertex_buffer, sr->tris.d, sr->tris.len);
+	set_vertices(sr->prog_color, sr->vertex_buffer,
+		sr->tris.d, sr->tris.len);
 	glDrawArrays(GL_TRIANGLES, 0, sr->tris.len);
 
 	/* text stuff */
@@ -260,11 +315,20 @@ void sr_present(struct sr *sr, const float mat[static 9]) {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
 			GL_CLAMP_TO_EDGE);
 
+		if (ot->clip) {
+			sr_clip_push(sr, ot->clip_rect);
+			set_clip(sr, win_size);
+			sr_clip_pop(sr);
+		} else {
+			set_clip(sr, win_size);
+		}
+
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		if (ot->own_tex) {
 			glDeleteTextures(1, &ot->tex);
 		}
 	}
+	glDisable(GL_SCISSOR_TEST);
 
 	vec_clear(&sr->tris);
 	vec_clear(&sr->draw_textures);

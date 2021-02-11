@@ -15,6 +15,9 @@ struct mgu_texture mgu_texture_create_from_mem(struct mgu_pixel *data,
 	uint32_t s[static 2]);
 void mgu_texture_destroy(struct mgu_texture *texture);
 
+void mgu_set_scissor(const float p[static 4],
+	const uint32_t viewport[static 2]);
+
 /* attribs is termiated using an entry with a NULL name */
 GLuint mgu_shader_program(const GLchar *vert, const GLchar *frag);
 

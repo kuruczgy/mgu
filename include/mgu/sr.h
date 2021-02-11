@@ -16,6 +16,7 @@ enum sr_align_opts {
 	SR_CENTER_V = 1 << 0,
 	SR_CENTER_H = 1 << 1,
 	SR_STRETCH = 1 << 2,
+	SR_TEX_PASS_OWNERSHIP = 1 << 3,
 	SR_CENTER = SR_CENTER_V | SR_CENTER_H,
 };
 
@@ -37,7 +38,9 @@ struct sr *sr_create_opengl(struct platform *plat);
 void sr_destroy(struct sr *sr);
 void sr_put(struct sr *sr, struct sr_spec spec);
 void sr_measure(struct sr *sr, float p[static 2], struct sr_spec spec);
-void sr_present(struct sr *sr, const float mat[static 9]);
+void sr_clip_push(struct sr *sr, const float aabb[static 4]);
+void sr_clip_pop(struct sr *sr);
+void sr_present(struct sr *sr, const uint32_t win_size[static 2]);
 
 /*
 Example usage:
