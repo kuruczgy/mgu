@@ -205,13 +205,15 @@ jobject JNU_NewStringNative(JNIEnv *env, struct str_slice slice) {
 static PangoLayout *create_pango_layout(const struct mgu_text *text, struct mgu_text_opts opts) {
 	PangoLayout *lay = pango_cairo_create_layout(text->ctx);
 	pango_layout_set_text(lay, opts.str, -1);
-	pango_layout_set_ellipsize(lay, PANGO_ELLIPSIZE_END);
 
 	if (opts.s[0] >= 0) {
 		pango_layout_set_width(lay, opts.s[0] * PANGO_SCALE);
 	}
 	if (opts.s[1] >= 0) {
 		pango_layout_set_height(lay, opts.s[1] * PANGO_SCALE);
+		pango_layout_set_ellipsize(lay, PANGO_ELLIPSIZE_END);
+	} else {
+		pango_layout_set_ellipsize(lay, PANGO_ELLIPSIZE_NONE);
 	}
 
 	if (opts.align_center) {
