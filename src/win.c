@@ -149,6 +149,9 @@ EM_JS(double, mgu_win_internal_init_resize_listener, (), {
 #endif // defined(__EMSCRIPTEN__)
 
 static void redraw_common(struct mgu_win_surf *surf) {
+	if (!surf->dirty) return;
+	surf->dirty = false;
+
 	// assert(surf->egl_inited);
 	EGLBoolean ret = eglMakeCurrent(surf->disp->egl_dpy, surf->egl_surf,
 		surf->egl_surf, surf->disp->egl_ctx);
@@ -341,7 +344,9 @@ static void surf_destroy(struct mgu_win_surf *surf) {
 	}
 #endif
 
-	surf_finish_egl(surf);
+	if (surf->egl_inited) {
+		surf_finish_egl(surf);
+	}
 
 	switch (surf->type) {
 #if defined(__EMSCRIPTEN__)
@@ -655,6 +660,10 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 		event_loop_set_idle_func(disp->el, NULL, NULL);
 		disp_finish_egl_ctx(disp);
 		surf_finish_egl(surf);
+		break;
+	case APP_CMD_CONFIG_CHANGED:
+	case APP_CMD_WINDOW_REDRAW_NEEDED:
+		mgu_win_surf_mark_dirty(surf);
 		break;
 	default:
 		break;
@@ -1027,9 +1036,6 @@ static void schedule_frame(struct mgu_win_surf *surf);
 
 static void redraw(struct mgu_win_surf *surf)
 {
-	if (!surf->dirty) return;
-	surf->dirty = false;
-
 	redraw_common(surf);
 
 	schedule_frame(surf);
@@ -1351,12 +1357,13 @@ void mgu_disp_mark_all_surfs_dirty(struct mgu_disp *disp) {
 #endif
 
 void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf) {
+	surf->dirty = true;
+
 #if defined(__EMSCRIPTEN__)
-	// TODO: lazy drawing
+	// TODO
 #elif defined(__ANDROID__)
 	// TODO
 #else
-	surf->dirty = true;
 	schedule_frame(surf);
 #endif
 }

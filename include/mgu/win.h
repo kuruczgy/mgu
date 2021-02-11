@@ -125,6 +125,8 @@ struct mgu_win_surf {
 	struct mgu_disp *disp;
 	uint32_t size[2];
 
+	bool dirty;
+
 	enum mgu_win_type {
 #if defined(__EMSCRIPTEN__)
 		MGU_WIN_CANVAS,
@@ -157,7 +159,6 @@ struct mgu_win_surf {
 	struct wl_egl_window *native;
 	struct wl_surface *surf;
 	bool wait_for_configure, req_close;
-	bool dirty;
 	struct wl_callback *frame_cb;
 #endif
 };
