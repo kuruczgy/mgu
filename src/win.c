@@ -123,7 +123,7 @@ static void calculate_display_metrics(struct mgu_out *out) {
 		guessed_screen_visual_deg;
 	out->ppvd /= out->scale;
 
-	pu_log_info("[display metrics] res_px: { %d, %d }, scale: %d, "
+	pu_log_info("[win/display metrics] res_px: { %d, %d }, scale: %d, "
 		"size_mm: { %f, %f }, ppmm: %f, ppvd: %f\n",
 		out->res_px[0], out->res_px[1],
 		out->scale,
@@ -181,7 +181,8 @@ static void redraw_common(struct mgu_win_surf *surf) {
 #if DEBUG_FRAME_RATE
 		if (tp.tv_sec > surf->frame_counter_since) {
 			surf->frame_counter_since = tp.tv_sec;
-			pu_log_info("surf %p FPS: %d\n", surf, surf->frame_counter_n);
+			pu_log_info("[win] surf %p FPS: %d\n",
+				surf, surf->frame_counter_n);
 			surf->frame_counter_n = 0;
 		}
 		++surf->frame_counter_n;
@@ -368,6 +369,20 @@ static void surf_destroy(struct mgu_win_surf *surf) {
 	}
 
 	free(surf);
+}
+
+static void do_req_close(struct mgu_win_surf *surf) {
+	surf->req_close = true;
+
+	/* only stop event loop if ALL surfaces want to be closed */
+	struct mgu_disp *disp = surf->disp;
+	for (int i = 0; i < disp->surfaces.len; ++i) {
+		struct mgu_win_surf *surf_i =
+			*(struct mgu_win_surf **)vec_get(&disp->surfaces, i);
+		if (!surf_i->req_close) return;
+	}
+
+	event_loop_stop(surf->disp->el);
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -645,11 +660,13 @@ static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
 	case APP_CMD_INIT_WINDOW:
 		if (disp->plat->app->window != NULL) {
 			if (!disp_init_egl_ctx(disp)) {
-				pu_log_info("[android] disp_init_egl_ctx failed!\n");
+				pu_log_info("[win/android]"
+					" disp_init_egl_ctx failed!\n");
 			}
 			if (surf_init_egl(surf) != 0) {
 				// error
-				pu_log_info("[android] surf_init_egl failed!\n");
+				pu_log_info("[win/android]"
+					" surf_init_egl failed!\n");
 				break;
 			}
 			mgu_disp_force_redraw(disp);
@@ -963,7 +980,6 @@ static void output_handle_scale(void* data, struct wl_output *wl_output,
 	struct mgu_disp *disp = data;
 	struct mgu_out *out = find_out(disp, wl_output);
 	if (out) {
-		fprintf(stderr, "scale: %d\n", factor);
 		out->scale = factor;
 	}
 }
@@ -1066,26 +1082,27 @@ static void schedule_frame(struct mgu_win_surf *surf)
 	}
 }
 
-// static void surface_enter(void *data, struct wl_surface *surface,
-// 		struct wl_output *output) {
-// 	struct mgu_win *win = data;
-// 	if (win->disp->output == output) {
-// 
-// 	}
-// }
-// static void surface_leave(void *data, struct wl_surface *surface,
-// 		struct wl_output *output) {
-// }
-// 
-// static struct wl_surface_listener surf_lis = {
-// 	.enter = surface_enter,
-// 	.leave = surface_leave,
-// };
+static void surface_enter(void *data, struct wl_surface *surface,
+		struct wl_output *output) {
+	struct mgu_win_surf *surf = data;
+	surf->out_last_entered = output;
+	pu_log_info("[win/wayland] surface enter: %p\n", output);
+}
+static void surface_leave(void *data, struct wl_surface *surface,
+		struct wl_output *output) {
+	// I guess just ignore this?
+	pu_log_info("[win/wayland] surface leave: %p\n", output);
+}
+
+static struct wl_surface_listener surf_lis = {
+	.enter = surface_enter,
+	.leave = surface_leave,
+};
 
 static void configure_common(struct mgu_win_surf *surf,
 		int32_t size[static 2]) {
-	struct mgu_out *out = mgu_disp_get_default_output(surf->disp); // TODO: obviously not correct...
-	int32_t scale = out->scale;
+	struct mgu_out *out = mgu_win_surf_get_output(surf);
+	int32_t scale = out ? out->scale : 1;
 	// surf->size[0] = size[0], surf->size[1] = size[1];
 	wl_surface_set_buffer_scale(surf->surf, scale);
 	wl_egl_window_resize(surf->native,
@@ -1110,7 +1127,7 @@ static void layer_surface_configure(void *data,
 }
 static void layer_surface_closed(void *data,
 		struct zwlr_layer_surface_v1 *surface) {
-	((struct mgu_win_surf *)data)->req_close = true;
+	do_req_close(data);
 }
 struct zwlr_layer_surface_v1_listener layer_surf_lis = {
 	.configure = layer_surface_configure,
@@ -1119,7 +1136,6 @@ struct zwlr_layer_surface_v1_listener layer_surf_lis = {
 
 static void handle_xdg_surface_configure(void *data,
 		struct xdg_surface *surface, uint32_t serial) {
-	fprintf(stderr, "configure!\n");
 	xdg_surface_ack_configure(surface, serial);
 	configure_ack_common(data);
 }
@@ -1137,7 +1153,7 @@ static void handle_xdg_toplevel_configure(void *data,
 }
 static void handle_xdg_toplevel_close(void *data, struct xdg_toplevel
 		*xdg_toplevel) {
-	((struct mgu_win_surf *)data)->req_close = true;
+	do_req_close(data);
 }
 static const struct xdg_toplevel_listener toplevel_lis = {
     handle_xdg_toplevel_configure,
@@ -1181,10 +1197,15 @@ static int init_surf_xdg(
 		goto cleanup_none;
 	}
 
+	res = wl_surface_add_listener(surf->surf, &surf_lis, surf);
+	if (res == -1) {
+		goto cleanup_surf;
+	}
+
 	surf->xdg.surf = xdg_wm_base_get_xdg_surface(disp->wm, surf->surf);
 	if (!surf->xdg.surf) {
 		res = -1;
-		goto cleanup_none;
+		goto cleanup_surf;
 	}
 
 	res = xdg_surface_add_listener(surf->xdg.surf, &xdg_surf_lis, surf);
@@ -1217,6 +1238,8 @@ cleanup_toplevel:
 	xdg_toplevel_destroy(surf->xdg.toplevel);
 cleanup_xdg_surf:
 	xdg_surface_destroy(surf->xdg.surf);
+cleanup_surf:
+	wl_surface_destroy(surf->surf);
 cleanup_none:
 	return res;
 }
@@ -1402,7 +1425,7 @@ int mgu_disp_init(struct mgu_disp *disp, struct platform *plat)
 	disp->out.devicePixelRatio = devicePixelRatio;
 	disp->out.res_px[0] *= devicePixelRatio;
 	disp->out.res_px[1] *= devicePixelRatio;
-	fprintf(stderr, "[emscripten] devicePixelRatio: %f\n",
+	pu_log_info("[win/emscripten] devicePixelRatio: %f\n",
 		devicePixelRatio);
 	calculate_display_metrics(out);
 #elif defined(__ANDROID__)
@@ -1502,6 +1525,16 @@ struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp) {
 		return vec_get(&disp->outputs, 0);
 	}
 	return NULL;
+#endif
+}
+
+struct mgu_out *mgu_win_surf_get_output(struct mgu_win_surf *surf) {
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
+	return &disp->out;
+#else
+	struct mgu_out *out = find_out(surf->disp, surf->out_last_entered);
+	if (!out) out = mgu_disp_get_default_output(surf->disp);
+	return out;
 #endif
 }
 

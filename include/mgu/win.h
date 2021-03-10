@@ -160,6 +160,7 @@ struct mgu_win_surf {
 	struct wl_surface *surf;
 	bool wait_for_configure, req_close;
 	struct wl_callback *frame_cb;
+	struct wl_output *out_last_entered;
 #endif
 };
 
@@ -169,6 +170,7 @@ void mgu_disp_finish(struct mgu_disp *disp);
 struct mgu_win_surf *mgu_disp_add_surf_default(struct mgu_disp *disp,
 	const char *title);
 struct mgu_out *mgu_disp_get_default_output(struct mgu_disp *disp);
+struct mgu_out *mgu_win_surf_get_output(struct mgu_win_surf *surf);
 void mgu_win_surf_mark_dirty(struct mgu_win_surf *surf);
 void mgu_disp_add_to_event_loop(struct mgu_disp *disp, struct event_loop *el);
 void mgu_disp_force_redraw(struct mgu_disp *disp);
